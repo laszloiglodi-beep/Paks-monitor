@@ -1,5 +1,19 @@
 {
   "name": "paks-monitor",
   "main": "worker.js",
-  "compatibility_date": "2026-08-15"
+  "compatibility_date": "2026-08-15",
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "paks-monitor-db",
+      "database_id": "015ef067-7e38-475a-9c2e-21d658b833f9"
+    }
+  ],
+
+  "triggers": {
+    "crons": [
+      "*/5 * * * *"
+    ]
+  }
 }
