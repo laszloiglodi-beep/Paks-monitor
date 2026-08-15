@@ -1,369 +1,391 @@
+const OAH_URL =
+  "https://tranem.haea.gov.hu/web/v3/OAHPortal.nsf/web?OpenAgent=&article=paksnpp";
+
+const VIZ_URL =
+  "https://www.vizugy.hu/?AllomasVOA=16496188-97AB-11D4-BB62-00508BA24287&mapData=OrasIdosor&mapModule=OpGrafikon";
+
+const PUBLIC_URL =
+  "https://paks-monitor.laszlo-iglodi.workers.dev";
+
+const FB_IMAGE_RAW =
+  "https://raw.githubusercontent.com/laszloiglodi-beep/Paks-monitor/main/60CF06BF-2068-420D-AC41-224FB3B75358.png";
+
+
+function clean(html) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&#160;/gi, " ")
+    .replace(/&minus;/gi, "-")
+    .replace(/&#8722;/gi, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+
+function fmt1(value) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value.toLocaleString("hu-HU", {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1
+      })
+    : "—";
+}
+
+
+function shortTime(value) {
+  const match = String(value || "").match(/(\d{2}:\d{2})/);
+  return match ? match[1] : "—";
+}
+
+
+// ============================================================
+// D1 TÁBLA
+// ============================================================
+
+async function ensureDB(env) {
+
+  if (!env || !env.DB) {
+    throw new Error("DB binding missing");
+  }
+
+  await env.DB
+    .prepare(
+      "CREATE TABLE IF NOT EXISTS measurements (" +
+      "ts INTEGER PRIMARY KEY, " +
+      "power INTEGER, " +
+      "water INTEGER, " +
+      "flow REAL, " +
+      "temp REAL" +
+      ")"
+    )
+    .run();
+}
+
+
+// ============================================================
+// AKTUÁLIS ADATOK
+// ============================================================
+
+async function getCurrentData() {
+
+  let blocks = ["—", "—", "—", "—"];
+
+  let oahTime = "—";
+  let oahStatus = "OK";
+
+  let water = null;
+  let flow = null;
+  let temp = null;
+
+  let riverTime = "—";
+  let riverStatus = "OK";
+
+
+  // ---------------- PAKS ----------------
+
+  try {
+
+    const response = await fetch(OAH_URL, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (compatible; PaksMonitor/1.0)"
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error("OAH HTTP " + response.status);
+    }
+
+    const text = clean(await response.text());
+
+
+    const date = text.match(
+      /Mérés dátuma:\s*([0-9]{4}\.\s*[0-9]{2}\.\s*[0-9]{2}\s*[0-9]{2}:[0-9]{2})/i
+    );
+
+    if (date) {
+      oahTime = date[1];
+    }
+
+
+    const power = text.match(
+      /1\.\s*blokk\s*2\.\s*blokk\s*3\.\s*blokk\s*4\.\s*blokk\s*(\d+)\s*MW\s*(\d+)\s*MW\s*(\d+)\s*MW\s*(\d+)\s*MW/i
+    );
+
+
+    if (power) {
+
+      blocks = [
+        power[1],
+        power[2],
+        power[3],
+        power[4]
+      ];
+
+    } else {
+
+      oahStatus = "ADATHIBA";
+    }
+
+  } catch (error) {
+
+    oahStatus = "KAPCSOLATI HIBA";
+  }
+
+
+  // ---------------- DUNA ----------------
+
+  try {
+
+    const response = await fetch(VIZ_URL, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (compatible; PaksMonitor/1.0)"
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error("VIZ HTTP " + response.status);
+    }
+
+    const text = clean(await response.text());
+
+
+    const row = text.match(
+      /(20\d{2}\.\d{2}\.\d{2}\.\s*\d{2}:\d{2})\s+(-?\d+)\s+(\d+[.,]\d+|-)\s+(\d+[.,]?\d*|-)\s+(\d+[.,]?\d*|-)/
+    );
+
+
+    if (row) {
+
+      riverTime = row[1];
+
+      const waterValue = Number(row[2]);
+
+      if (Number.isFinite(waterValue)) {
+        water = waterValue;
+      }
+
+
+      if (row[3] !== "-") {
+
+        const n = Number(
+          row[3].replace(",", ".")
+        );
+
+        if (Number.isFinite(n)) {
+          flow = n;
+        }
+      }
+
+
+      if (row[4] !== "-") {
+
+        const n = Number(
+          row[4].replace(",", ".")
+        );
+
+        if (Number.isFinite(n)) {
+          temp = n;
+        }
+
+      } else if (row[5] !== "-") {
+
+        const n = Number(
+          row[5].replace(",", ".")
+        );
+
+        if (Number.isFinite(n)) {
+          temp = n;
+        }
+      }
+
+    } else {
+
+      riverStatus = "ADATHIBA";
+    }
+
+  } catch (error) {
+
+    riverStatus = "KAPCSOLATI HIBA";
+  }
+
+
+  const validBlocks =
+    blocks.every(
+      value => /^\d+$/.test(String(value))
+    );
+
+
+  const total =
+    validBlocks
+      ? blocks.reduce(
+          (sum, value) =>
+            sum + Number(value),
+          0
+        )
+      : null;
+
+
+  return {
+    blocks,
+    total,
+    water,
+    flow,
+    temp,
+    oahTime,
+    riverTime,
+    oahStatus,
+    riverStatus
+  };
+}
+
+
+// ============================================================
+// D1 MENTÉS
+// ============================================================
+
+async function saveMeasurement(env, data) {
+
+  try {
+
+    await ensureDB(env);
+
+
+    const bucket =
+      Math.floor(Date.now() / 300000) * 300000;
+
+
+    await env.DB
+      .prepare(
+        "INSERT OR REPLACE INTO measurements " +
+        "(ts, power, water, flow, temp) " +
+        "VALUES (?, ?, ?, ?, ?)"
+      )
+      .bind(
+        bucket,
+
+        Number.isFinite(data.total)
+          ? data.total
+          : null,
+
+        Number.isFinite(data.water)
+          ? data.water
+          : null,
+
+        Number.isFinite(data.flow)
+          ? data.flow
+          : null,
+
+        Number.isFinite(data.temp)
+          ? data.temp
+          : null
+      )
+      .run();
+
+
+    const cutoff =
+      Date.now() -
+      11 * 24 * 60 * 60 * 1000;
+
+
+    await env.DB
+      .prepare(
+        "DELETE FROM measurements WHERE ts < ?"
+      )
+      .bind(cutoff)
+      .run();
+
+
+    console.log(
+      "D1 SAVE OK",
+      bucket,
+      data.total,
+      data.water
+    );
+
+
+  } catch (error) {
+
+    console.log(
+      "D1 SAVE ERROR:",
+      error?.message || String(error)
+    );
+  }
+}
+
+
+// ============================================================
+// WORKER
+// ============================================================
+
 export default {
 
-  // ============================================================
-  // WEBOLDAL
-  // ============================================================
-
   async fetch(request, env, ctx) {
-
-    const OAH_URL =
-      "https://tranem.haea.gov.hu/web/v3/OAHPortal.nsf/web?OpenAgent=&article=paksnpp";
-
-    const VIZ_URL =
-      "https://www.vizugy.hu/?AllomasVOA=16496188-97AB-11D4-BB62-00508BA24287&mapData=OrasIdosor&mapModule=OpGrafikon";
-
-    const PUBLIC_URL =
-      "https://paks-monitor.laszlo-iglodi.workers.dev";
-
-    const FB_IMAGE_RAW =
-      "https://raw.githubusercontent.com/laszloiglodi-beep/Paks-monitor/main/60CF06BF-2068-420D-AC41-224FB3B75358.png";
 
     const url = new URL(request.url);
 
 
-    // ============================================================
-    // SEGÉDFÜGGVÉNYEK
-    // ============================================================
-
-    const clean = (html) =>
-      html
-        .replace(/<script[\s\S]*?<\/script>/gi, " ")
-        .replace(/<style[\s\S]*?<\/style>/gi, " ")
-        .replace(/<[^>]+>/g, " ")
-        .replace(/&nbsp;/gi, " ")
-        .replace(/&#160;/gi, " ")
-        .replace(/&minus;/gi, "-")
-        .replace(/&#8722;/gi, "-")
-        .replace(/\s+/g, " ")
-        .trim();
-
-
-    const fmt1 = (value) =>
-      typeof value === "number" && Number.isFinite(value)
-        ? value.toLocaleString("hu-HU", {
-            minimumFractionDigits: 1,
-            maximumFractionDigits: 1
-          })
-        : "—";
-
-
-    const shortTime = (value) => {
-      const m = String(value || "").match(/(\d{2}:\d{2})/);
-      return m ? m[1] : "—";
-    };
-
-
-    // ============================================================
-    // D1 TÁBLA
-    // ============================================================
-
-    async function ensureDB() {
-
-      if (!env || !env.DB) {
-        throw new Error("DB binding missing");
-      }
-
-      await env.DB.exec(`
-        CREATE TABLE IF NOT EXISTS measurements (
-          ts INTEGER PRIMARY KEY,
-          power INTEGER,
-          water INTEGER,
-          flow REAL,
-          temp REAL
-        )
-      `);
-    }
-
-
-    // ============================================================
-    // AKTUÁLIS ADATOK
-    // ============================================================
-
-    async function getCurrentData() {
-
-      let blocks = ["—", "—", "—", "—"];
-
-      let oahTime = "—";
-      let oahStatus = "OK";
-
-      let water = null;
-      let flow = null;
-      let temp = null;
-
-      let riverTime = "—";
-      let riverStatus = "OK";
-
-
-      // ---------------- PAKS ----------------
-
-      try {
-
-        const response = await fetch(OAH_URL, {
-          headers: {
-            "User-Agent":
-              "Mozilla/5.0 (compatible; PaksMonitor/1.0)"
-          }
-        });
-
-        if (!response.ok) {
-          throw new Error("OAH HTTP " + response.status);
-        }
-
-        const text =
-          clean(await response.text());
-
-
-        const date = text.match(
-          /Mérés dátuma:\s*([0-9]{4}\.\s*[0-9]{2}\.\s*[0-9]{2}\s*[0-9]{2}:[0-9]{2})/i
-        );
-
-        if (date) {
-          oahTime = date[1];
-        }
-
-
-        const power = text.match(
-          /1\.\s*blokk\s*2\.\s*blokk\s*3\.\s*blokk\s*4\.\s*blokk\s*(\d+)\s*MW\s*(\d+)\s*MW\s*(\d+)\s*MW\s*(\d+)\s*MW/i
-        );
-
-
-        if (power) {
-
-          blocks = [
-            power[1],
-            power[2],
-            power[3],
-            power[4]
-          ];
-
-        } else {
-
-          oahStatus = "ADATHIBA";
-        }
-
-      } catch (e) {
-
-        oahStatus = "KAPCSOLATI HIBA";
-      }
-
-
-      // ---------------- DUNA ----------------
-
-      try {
-
-        const response = await fetch(VIZ_URL, {
-          headers: {
-            "User-Agent":
-              "Mozilla/5.0 (compatible; PaksMonitor/1.0)"
-          }
-        });
-
-        if (!response.ok) {
-          throw new Error("VIZ HTTP " + response.status);
-        }
-
-        const text =
-          clean(await response.text());
-
-
-        const row = text.match(
-          /(20\d{2}\.\d{2}\.\d{2}\.\s*\d{2}:\d{2})\s+(-?\d+)\s+(\d+[.,]\d+|-)\s+(\d+[.,]?\d*|-)\s+(\d+[.,]?\d*|-)/
-        );
-
-
-        if (row) {
-
-          riverTime = row[1];
-
-          water = Number(row[2]);
-
-
-          if (row[3] !== "-") {
-
-            const n =
-              Number(row[3].replace(",", "."));
-
-            if (Number.isFinite(n)) {
-              flow = n;
-            }
-          }
-
-
-          if (row[4] !== "-") {
-
-            const n =
-              Number(row[4].replace(",", "."));
-
-            if (Number.isFinite(n)) {
-              temp = n;
-            }
-
-          } else if (row[5] !== "-") {
-
-            const n =
-              Number(row[5].replace(",", "."));
-
-            if (Number.isFinite(n)) {
-              temp = n;
-            }
-          }
-
-        } else {
-
-          riverStatus = "ADATHIBA";
-        }
-
-      } catch (e) {
-
-        riverStatus = "KAPCSOLATI HIBA";
-      }
-
-
-      const total =
-        blocks.every(x => /^\d+$/.test(String(x)))
-          ? blocks.reduce(
-              (sum, value) => sum + Number(value),
-              0
-            )
-          : null;
-
-
-      return {
-        blocks,
-        total,
-        water,
-        flow,
-        temp,
-        oahTime,
-        riverTime,
-        oahStatus,
-        riverStatus
-      };
-    }
-
-
-    // ============================================================
-    // D1 MENTÉS
-    // ============================================================
-
-    async function saveMeasurement(data) {
-
-      try {
-
-        await ensureDB();
-
-
-        // 5 perces időablak
-        const bucket =
-          Math.floor(Date.now() / 300000) * 300000;
-
-
-        await env.DB
-          .prepare(`
-            INSERT OR REPLACE INTO measurements
-            (ts, power, water, flow, temp)
-            VALUES (?, ?, ?, ?, ?)
-          `)
-          .bind(
-            bucket,
-            Number.isFinite(data.total)
-              ? data.total
-              : null,
-
-            Number.isFinite(data.water)
-              ? data.water
-              : null,
-
-            Number.isFinite(data.flow)
-              ? data.flow
-              : null,
-
-            Number.isFinite(data.temp)
-              ? data.temp
-              : null
-          )
-          .run();
-
-
-        // 11 napnál régebbi adatok törlése
-        const cutoff =
-          Date.now() -
-          11 * 24 * 60 * 60 * 1000;
-
-
-        await env.DB
-          .prepare(`
-            DELETE FROM measurements
-            WHERE ts < ?
-          `)
-          .bind(cutoff)
-          .run();
-
-
-      } catch (e) {
-
-        console.log(
-          "D1 SAVE ERROR:",
-          e && e.message
-            ? e.message
-            : String(e)
-        );
-      }
-    }
-
-
-    // ============================================================
+    // ========================================================
     // FACEBOOK KÉP
-    // ============================================================
+    // ========================================================
 
     if (url.pathname === "/facebook-image") {
 
       try {
 
-        const imageResponse =
+        const response =
           await fetch(FB_IMAGE_RAW);
 
 
-        if (!imageResponse.ok) {
+        if (!response.ok) {
 
           return new Response(
             "Image not found",
-            { status: 404 }
+            {
+              status: 404
+            }
           );
         }
 
 
         return new Response(
-          imageResponse.body,
+          response.body,
           {
             headers: {
-              "content-type": "image/png",
+              "content-type":
+                "image/png",
+
               "cache-control":
                 "public, max-age=86400"
             }
           }
         );
 
-
-      } catch (e) {
+      } catch (error) {
 
         return new Response(
           "Image unavailable",
-          { status: 503 }
+          {
+            status: 503
+          }
         );
       }
     }
 
 
-    // ============================================================
+    // ========================================================
     // HISTORY API
-    // ============================================================
+    // ========================================================
 
     if (url.pathname === "/api/history") {
 
       try {
 
-        await ensureDB();
+        await ensureDB(env);
 
 
         let hours =
@@ -384,17 +406,12 @@ export default {
 
         const result =
           await env.DB
-            .prepare(`
-              SELECT
-                ts,
-                power,
-                water,
-                flow,
-                temp
-              FROM measurements
-              WHERE ts >= ?
-              ORDER BY ts ASC
-            `)
+            .prepare(
+              "SELECT ts, power, water, flow, temp " +
+              "FROM measurements " +
+              "WHERE ts >= ? " +
+              "ORDER BY ts ASC"
+            )
             .bind(cutoff)
             .all();
 
@@ -418,16 +435,13 @@ export default {
                 "application/json;charset=UTF-8",
 
               "cache-control":
-                "no-store",
-
-              "access-control-allow-origin":
-                "*"
+                "no-store"
             }
           }
         );
 
 
-      } catch (e) {
+      } catch (error) {
 
         return new Response(
           JSON.stringify({
@@ -435,9 +449,8 @@ export default {
             count: 0,
             data: [],
             error:
-              e && e.message
-                ? e.message
-                : String(e)
+              error?.message ||
+              String(error)
           }),
           {
             status: 200,
@@ -454,24 +467,22 @@ export default {
     }
 
 
-    // ============================================================
-    // FŐOLDAL ADAT
-    // ============================================================
+    // ========================================================
+    // FŐOLDAL
+    // ========================================================
 
     const data =
       await getCurrentData();
 
 
-    // Oldalmegnyitáskor is mentünk egy pontot.
-    if (ctx && typeof ctx.waitUntil === "function") {
+    if (
+      ctx &&
+      typeof ctx.waitUntil === "function"
+    ) {
 
       ctx.waitUntil(
-        saveMeasurement(data)
+        saveMeasurement(env, data)
       );
-
-    } else {
-
-      saveMeasurement(data);
     }
 
 
@@ -523,27 +534,18 @@ export default {
 
       if (water <= -144) {
 
-        riverClass =
-          "danger";
-
-        riverLabel =
-          "KRITIKUS VÍZSZINT";
+        riverClass = "danger";
+        riverLabel = "KRITIKUS VÍZSZINT";
 
       } else if (water <= -134) {
 
-        riverClass =
-          "warning";
-
-        riverLabel =
-          "LEÁLLÁSI TARTOMÁNY";
+        riverClass = "warning";
+        riverLabel = "LEÁLLÁSI TARTOMÁNY";
 
       } else if (water <= -129) {
 
-        riverClass =
-          "warning";
-
-        riverLabel =
-          "FIGYELMEZTETÉS";
+        riverClass = "warning";
+        riverLabel = "FIGYELMEZTETÉS";
       }
     }
 
@@ -556,6 +558,7 @@ export default {
       markerPct =
         ((-110 - water) / 40) * 100;
 
+
       markerPct =
         Math.max(
           0,
@@ -564,12 +567,7 @@ export default {
     }
 
 
-    // ============================================================
-    // HTML
-    // ============================================================
-
     const html = `<!doctype html>
-
 <html lang="hu">
 
 <head>
@@ -596,15 +594,8 @@ export default {
   content="black"
 >
 
-<meta
-  name="apple-mobile-web-app-title"
-  content="PAKS ADATOK"
->
-
 <title>⚛️ PAKS AKTUÁLIS ADATOK</title>
 
-
-<!-- FACEBOOK -->
 
 <meta property="og:type" content="website">
 
@@ -639,18 +630,8 @@ export default {
 >
 
 <meta
-  property="og:image:alt"
-  content="PAKS aktuális adatok – Paksi Atomerőmű és Duna"
->
-
-<meta
   name="twitter:card"
   content="summary_large_image"
->
-
-<meta
-  name="twitter:title"
-  content="⚛️ PAKS AKTUÁLIS ADATOK"
 >
 
 <meta
@@ -870,7 +851,6 @@ body{
   color:#8394a8;
   font-size:7px;
   font-weight:850;
-  cursor:pointer;
 }
 
 .periodButton.active{
@@ -1133,14 +1113,6 @@ canvas{
   .big{
     font-size:70px;
   }
-
-  .blockValue{
-    font-size:27px;
-  }
-
-  .metricValue{
-    font-size:26px;
-  }
 }
 
 </style>
@@ -1151,10 +1123,12 @@ canvas{
 const PUBLIC_URL =
   "${PUBLIC_URL}";
 
+
 let selectedRange = {
   power:6,
   water:6
 };
+
 
 let cache = {};
 
@@ -1188,12 +1162,7 @@ async function getHistory(hours){
     return [];
 
 
-  }catch(e){
-
-    console.log(
-      "History error",
-      e
-    );
+  }catch(error){
 
     return [];
   }
@@ -1206,11 +1175,14 @@ async function loadHistory(hours){
     return cache[hours];
   }
 
+
   const data =
     await getHistory(hours);
 
+
   cache[hours] =
     data;
+
 
   return data;
 }
@@ -1228,6 +1200,7 @@ async function drawChart(
       canvasId
     );
 
+
   if(!canvas){
     return;
   }
@@ -1239,10 +1212,17 @@ async function drawChart(
 
   const data =
     rows
-      .map(row => ({
-        x:Number(row.ts),
-        y:Number(row[field])
-      }))
+      .filter(
+        row =>
+          row[field] !== null &&
+          row[field] !== undefined
+      )
+      .map(
+        row => ({
+          x:Number(row.ts),
+          y:Number(row[field])
+        })
+      )
       .filter(
         point =>
           Number.isFinite(point.x) &&
@@ -1312,6 +1292,7 @@ async function drawChart(
   ctx.strokeStyle =
     "rgba(115,145,170,.18)";
 
+
   ctx.lineWidth = 1;
 
 
@@ -1342,8 +1323,6 @@ async function drawChart(
     ctx.stroke();
   }
 
-
-  // NINCS ADAT
 
   if(data.length === 0){
 
@@ -1448,8 +1427,6 @@ async function drawChart(
     chartH;
 
 
-  // Y FELIRATOK
-
   ctx.fillStyle =
     "#708296";
 
@@ -1485,8 +1462,6 @@ async function drawChart(
     );
   }
 
-
-  // X TENGELY
 
   ctx.textAlign =
     "center";
@@ -1570,8 +1545,6 @@ async function drawChart(
     "round";
 
 
-  // EGYETLEN PONT IS LÁTSZIK
-
   if(data.length === 1){
 
     ctx.beginPath();
@@ -1606,8 +1579,6 @@ async function drawChart(
   }
 
 
-  // VONAL
-
   ctx.beginPath();
 
 
@@ -1623,17 +1594,11 @@ async function drawChart(
 
       if(index === 0){
 
-        ctx.moveTo(
-          x,
-          y
-        );
+        ctx.moveTo(x,y);
 
       }else{
 
-        ctx.lineTo(
-          x,
-          y
-        );
+        ctx.lineTo(x,y);
       }
     }
   );
@@ -1641,8 +1606,6 @@ async function drawChart(
 
   ctx.stroke();
 
-
-  // UTOLSÓ PONT
 
   const last =
     data[data.length - 1];
@@ -1713,6 +1676,8 @@ function setRange(
     .add("active");
 
 
+  cache = {};
+
   redraw();
 }
 
@@ -1770,8 +1735,6 @@ window.addEventListener(
 );
 
 
-// 5 percenként frissítjük a grafikont
-
 setInterval(
   async () => {
 
@@ -1789,6 +1752,7 @@ setInterval(
 
 
 <body>
+
 
 <div class="app">
 
@@ -1817,10 +1781,6 @@ setInterval(
 <div class="cards">
 
 
-<!-- ============================================================
-     PAKS
-     ============================================================ -->
-
 <section class="card">
 
 <div class="inner">
@@ -1846,105 +1806,109 @@ setInterval(
 
 <div class="chartBox">
 
-  <div class="chartTop">
 
-    <div class="chartTitle">
-      TELJESÍTMÉNY VÁLTOZÁSA • MW
-    </div>
+<div class="chartTop">
 
-
-    <div class="periods">
-
-      <button
-        class="periodButton active"
-        data-chart="power"
-        onclick="setRange('power',6,this)"
-      >
-        6 ÓRA
-      </button>
-
-      <button
-        class="periodButton"
-        data-chart="power"
-        onclick="setRange('power',24,this)"
-      >
-        24 ÓRA
-      </button>
-
-      <button
-        class="periodButton"
-        data-chart="power"
-        onclick="setRange('power',240,this)"
-      >
-        10 NAP
-      </button>
-
-    </div>
-
+  <div class="chartTitle">
+    TELJESÍTMÉNY VÁLTOZÁSA • MW
   </div>
 
 
-  <div class="chartWrap">
+  <div class="periods">
 
-    <canvas id="powerChart"></canvas>
+    <button
+      class="periodButton active"
+      data-chart="power"
+      onclick="setRange('power',6,this)"
+    >
+      6 ÓRA
+    </button>
+
+    <button
+      class="periodButton"
+      data-chart="power"
+      onclick="setRange('power',24,this)"
+    >
+      24 ÓRA
+    </button>
+
+    <button
+      class="periodButton"
+      data-chart="power"
+      onclick="setRange('power',240,this)"
+    >
+      10 NAP
+    </button>
 
   </div>
 
 </div>
 
 
+<div class="chartWrap">
+
+  <canvas id="powerChart"></canvas>
+
+</div>
+
+
+</div>
+
+
 <div class="blocks">
 
-  <div class="block">
 
-    <div class="blockName">
-      1. BLOKK
-    </div>
+<div class="block">
 
-    <div class="blockValue">
-      ${blocks[0]} MW
-    </div>
-
+  <div class="blockName">
+    1. BLOKK
   </div>
 
-
-  <div class="block">
-
-    <div class="blockName">
-      2. BLOKK
-    </div>
-
-    <div class="blockValue">
-      ${blocks[1]} MW
-    </div>
-
+  <div class="blockValue">
+    ${blocks[0]} MW
   </div>
 
+</div>
 
-  <div class="block">
 
-    <div class="blockName">
-      3. BLOKK
-    </div>
+<div class="block">
 
-    <div class="blockValue">
-      ${blocks[2]} MW
-    </div>
-
+  <div class="blockName">
+    2. BLOKK
   </div>
 
-
-  <div class="block">
-
-    <div class="blockName">
-      4. BLOKK
-    </div>
-
-    <div class="blockValue">
-      ${blocks[3]} MW
-    </div>
-
+  <div class="blockValue">
+    ${blocks[1]} MW
   </div>
+
+</div>
+
+
+<div class="block">
+
+  <div class="blockName">
+    3. BLOKK
+  </div>
+
+  <div class="blockValue">
+    ${blocks[2]} MW
+  </div>
+
+</div>
+
+
+<div class="block">
+
+  <div class="blockName">
+    4. BLOKK
+  </div>
+
+  <div class="blockValue">
+    ${blocks[3]} MW
+  </div>
+
+</div>
+
 
 </div>
 
@@ -1965,10 +1929,6 @@ setInterval(
 
 </section>
 
-
-<!-- ============================================================
-     DUNA
-     ============================================================ -->
 
 <section class="card">
 
@@ -1995,79 +1955,83 @@ setInterval(
 
 <div class="chartBox">
 
-  <div class="chartTop">
 
-    <div class="chartTitle">
-      VÍZÁLLÁS VÁLTOZÁSA • CM
-    </div>
+<div class="chartTop">
 
-
-    <div class="periods">
-
-      <button
-        class="periodButton active"
-        data-chart="water"
-        onclick="setRange('water',6,this)"
-      >
-        6 ÓRA
-      </button>
-
-      <button
-        class="periodButton"
-        data-chart="water"
-        onclick="setRange('water',24,this)"
-      >
-        24 ÓRA
-      </button>
-
-      <button
-        class="periodButton"
-        data-chart="water"
-        onclick="setRange('water',240,this)"
-      >
-        10 NAP
-      </button>
-
-    </div>
-
+  <div class="chartTitle">
+    VÍZÁLLÁS VÁLTOZÁSA • CM
   </div>
 
 
-  <div class="chartWrap">
+  <div class="periods">
 
-    <canvas id="waterChart"></canvas>
+    <button
+      class="periodButton active"
+      data-chart="water"
+      onclick="setRange('water',6,this)"
+    >
+      6 ÓRA
+    </button>
+
+    <button
+      class="periodButton"
+      data-chart="water"
+      onclick="setRange('water',24,this)"
+    >
+      24 ÓRA
+    </button>
+
+    <button
+      class="periodButton"
+      data-chart="water"
+      onclick="setRange('water',240,this)"
+    >
+      10 NAP
+    </button>
 
   </div>
 
 </div>
 
 
+<div class="chartWrap">
+
+  <canvas id="waterChart"></canvas>
+
+</div>
+
+
+</div>
+
+
 <div class="metrics">
 
-  <div class="metric">
 
-    <div class="metricName">
-      VÍZHOZAM
-    </div>
+<div class="metric">
 
-    <div class="metricValue">
-      ${fmt1(flow)} m³/s
-    </div>
-
+  <div class="metricName">
+    VÍZHOZAM
   </div>
 
-
-  <div class="metric">
-
-    <div class="metricName">
-      VÍZHŐMÉRSÉKLET
-    </div>
-
-    <div class="metricValue">
-      ${fmt1(temp)} °C
-    </div>
-
+  <div class="metricValue">
+    ${fmt1(flow)} m³/s
   </div>
+
+</div>
+
+
+<div class="metric">
+
+  <div class="metricName">
+    VÍZHŐMÉRSÉKLET
+  </div>
+
+  <div class="metricValue">
+    ${fmt1(temp)} °C
+  </div>
+
+</div>
+
 
 </div>
 
@@ -2102,42 +2066,44 @@ setInterval(
 
 <div class="distances">
 
-  <div class="distance">
 
-    <div class="distanceValue">
+<div class="distance">
 
-      ${
-        shutdownDistance !== null
-          ? Math.abs(shutdownDistance) + " cm"
-          : "—"
-      }
+  <div class="distanceValue">
 
-    </div>
-
-    <div class="distanceLabel">
-      LEÁLLÁSI KÜSZÖBIG
-    </div>
+    ${
+      shutdownDistance !== null
+        ? Math.abs(shutdownDistance) + " cm"
+        : "—"
+    }
 
   </div>
 
+  <div class="distanceLabel">
+    LEÁLLÁSI KÜSZÖBIG
+  </div>
 
-  <div class="distance">
+</div>
 
-    <div class="distanceValue">
 
-      ${
-        safetyDistance !== null
-          ? Math.abs(safetyDistance) + " cm"
-          : "—"
-      }
+<div class="distance">
 
-    </div>
+  <div class="distanceValue">
 
-    <div class="distanceLabel">
-      BIZTONSÁGI HATÁRIG
-    </div>
+    ${
+      safetyDistance !== null
+        ? Math.abs(safetyDistance) + " cm"
+        : "—"
+    }
 
   </div>
+
+  <div class="distanceLabel">
+    BIZTONSÁGI HATÁRIG
+  </div>
+
+</div>
+
 
 </div>
 
@@ -2162,47 +2128,43 @@ setInterval(
 </div>
 
 
-<!-- ============================================================
-     ALSÓ RÉSZ
-     ============================================================ -->
-
 <div class="bottom">
 
 
-  <div class="signature">
-    IGLÓDI
+<div class="signature">
+  IGLÓDI
+</div>
+
+
+<div class="share">
+
+  <div class="shareTitle">
+    🔗 PARANCSIKON / MEGOSZTÁS
   </div>
 
 
-  <div class="share">
+  <div class="shareRow">
 
-    <div class="shareTitle">
-      🔗 PARANCSIKON / MEGOSZTÁS
-    </div>
-
-
-    <div class="shareRow">
-
-      <a
-        class="url"
-        href="${PUBLIC_URL}"
-        target="_blank"
-        rel="noopener"
-      >
-        ${PUBLIC_URL}
-      </a>
+    <a
+      class="url"
+      href="${PUBLIC_URL}"
+      target="_blank"
+      rel="noopener"
+    >
+      ${PUBLIC_URL}
+    </a>
 
 
-      <button
-        class="copy"
-        onclick="copyLink()"
-      >
-        MÁSOLÁS
-      </button>
-
-    </div>
+    <button
+      class="copy"
+      onclick="copyLink()"
+    >
+      MÁSOLÁS
+    </button>
 
   </div>
+
+</div>
 
 
 </div>
@@ -2240,9 +2202,9 @@ setInterval(
   },
 
 
-  // ============================================================
-  // 5 PERCES CRON
-  // ============================================================
+  // ========================================================
+  // CRON
+  // ========================================================
 
   async scheduled(controller, env, ctx) {
 
@@ -2254,270 +2216,40 @@ setInterval(
 };
 
 
-// ================================================================
+// ============================================================
 // CRON ADATGYŰJTÉS
-// ================================================================
+// ============================================================
 
 async function collectScheduledData(env) {
 
   try {
 
-    if (!env || !env.DB) {
+    await ensureDB(env);
 
-      console.log(
-        "CRON: DB binding missing"
-      );
 
-      return;
-    }
+    const data =
+      await getCurrentData();
 
 
-    const OAH_URL =
-      "https://tranem.haea.gov.hu/web/v3/OAHPortal.nsf/web?OpenAgent=&article=paksnpp";
-
-
-    const VIZ_URL =
-      "https://www.vizugy.hu/?AllomasVOA=16496188-97AB-11D4-BB62-00508BA24287&mapData=OrasIdosor&mapModule=OpGrafikon";
-
-
-    const clean = (html) =>
-      html
-        .replace(/<script[\s\S]*?<\/script>/gi, " ")
-        .replace(/<style[\s\S]*?<\/style>/gi, " ")
-        .replace(/<[^>]+>/g, " ")
-        .replace(/&nbsp;/gi, " ")
-        .replace(/&#160;/gi, " ")
-        .replace(/&minus;/gi, "-")
-        .replace(/&#8722;/gi, "-")
-        .replace(/\s+/g, " ")
-        .trim();
-
-
-    await env.DB.exec(`
-      CREATE TABLE IF NOT EXISTS measurements (
-        ts INTEGER PRIMARY KEY,
-        power INTEGER,
-        water INTEGER,
-        flow REAL,
-        temp REAL
-      )
-    `);
-
-
-    let total = null;
-
-    let water = null;
-
-    let flow = null;
-
-    let temp = null;
-
-
-    // ---------------- PAKS ----------------
-
-    try {
-
-      const response =
-        await fetch(
-          OAH_URL,
-          {
-            headers: {
-              "User-Agent":
-                "Mozilla/5.0 (compatible; PaksMonitor/1.0)"
-            }
-          }
-        );
-
-
-      if (response.ok) {
-
-        const text =
-          clean(
-            await response.text()
-          );
-
-
-        const power = text.match(
-          /1\.\s*blokk\s*2\.\s*blokk\s*3\.\s*blokk\s*4\.\s*blokk\s*(\d+)\s*MW\s*(\d+)\s*MW\s*(\d+)\s*MW\s*(\d+)\s*MW/i
-        );
-
-
-        if (power) {
-
-          total =
-            Number(power[1]) +
-            Number(power[2]) +
-            Number(power[3]) +
-            Number(power[4]);
-        }
-      }
-
-    } catch (e) {
-
-      console.log(
-        "CRON OAH ERROR:",
-        e && e.message
-          ? e.message
-          : String(e)
-      );
-    }
-
-
-    // ---------------- DUNA ----------------
-
-    try {
-
-      const response =
-        await fetch(
-          VIZ_URL,
-          {
-            headers: {
-              "User-Agent":
-                "Mozilla/5.0 (compatible; PaksMonitor/1.0)"
-            }
-          }
-        );
-
-
-      if (response.ok) {
-
-        const text =
-          clean(
-            await response.text()
-          );
-
-
-        const row = text.match(
-          /(20\d{2}\.\d{2}\.\d{2}\.\s*\d{2}:\d{2})\s+(-?\d+)\s+(\d+[.,]\d+|-)\s+(\d+[.,]?\d*|-)\s+(\d+[.,]?\d*|-)/
-        );
-
-
-        if (row) {
-
-          const w =
-            Number(row[2]);
-
-
-          if (Number.isFinite(w)) {
-            water = w;
-          }
-
-
-          if (row[3] !== "-") {
-
-            const n =
-              Number(
-                row[3].replace(",", ".")
-              );
-
-            if (Number.isFinite(n)) {
-              flow = n;
-            }
-          }
-
-
-          if (row[4] !== "-") {
-
-            const n =
-              Number(
-                row[4].replace(",", ".")
-              );
-
-            if (Number.isFinite(n)) {
-              temp = n;
-            }
-
-          } else if (row[5] !== "-") {
-
-            const n =
-              Number(
-                row[5].replace(",", ".")
-              );
-
-            if (Number.isFinite(n)) {
-              temp = n;
-            }
-          }
-        }
-      }
-
-    } catch (e) {
-
-      console.log(
-        "CRON VIZ ERROR:",
-        e && e.message
-          ? e.message
-          : String(e)
-      );
-    }
-
-
-    // ---------------- MENTÉS ----------------
-
-    const bucket =
-      Math.floor(
-        Date.now() / 300000
-      ) * 300000;
-
-
-    await env.DB
-      .prepare(`
-        INSERT OR REPLACE INTO measurements
-        (ts, power, water, flow, temp)
-        VALUES (?, ?, ?, ?, ?)
-      `)
-      .bind(
-        bucket,
-        Number.isFinite(total)
-          ? total
-          : null,
-
-        Number.isFinite(water)
-          ? water
-          : null,
-
-        Number.isFinite(flow)
-          ? flow
-          : null,
-
-        Number.isFinite(temp)
-          ? temp
-          : null
-      )
-      .run();
-
-
-    // ---------------- TAKARÍTÁS ----------------
-
-    const cutoff =
-      Date.now() -
-      11 * 24 * 60 * 60 * 1000;
-
-
-    await env.DB
-      .prepare(`
-        DELETE FROM measurements
-        WHERE ts < ?
-      `)
-      .bind(cutoff)
-      .run();
+    await saveMeasurement(
+      env,
+      data
+    );
 
 
     console.log(
       "CRON OK",
-      bucket,
-      total,
-      water
+      data.total,
+      data.water
     );
 
 
-  } catch (e) {
+  } catch (error) {
 
     console.log(
-      "CRON FATAL:",
-      e && e.message
-        ? e.message
-        : String(e)
+      "CRON ERROR:",
+      error?.message ||
+      String(error)
     );
   }
 }
