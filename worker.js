@@ -411,8 +411,8 @@ main{
 
 </div>
 
-<div class="source">
-  OAH ${shortTime(oahTime)} • Vízügy ${shortTime(riverTime)} • frissítés 5 perc
+<div class="footer">
+  AUTOMATIKUS FRISSÍTÉS • 5 PERC • IGLÓDI
 </div>
 
 </main>
