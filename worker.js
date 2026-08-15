@@ -125,36 +125,21 @@ export default {
         riverLabel = "LEÁLLÁSI TARTOMÁNY";
       } else if (water <= -129) {
         riverClass = "warning";
-        riverLabel = "FIGYELMEZTETÉSI TARTOMÁNY";
+        riverLabel = "FIGYELMEZTETÉS";
       }
     }
 
     let markerPct = 0;
 
-    // Skála: -110 ... -150 cm
     if (typeof water === "number") {
       markerPct = ((-110 - water) / 40) * 100;
       markerPct = Math.max(0, Math.min(100, markerPct));
     }
 
-    const shutdownText =
-      typeof shutdownDistance === "number"
-        ? shutdownDistance >= 0
-          ? `${shutdownDistance} cm a leállási küszöbig`
-          : `${Math.abs(shutdownDistance)} cm-rel a küszöb alatt`
-        : "—";
-
-    const safetyText =
-      typeof safetyDistance === "number"
-        ? safetyDistance >= 0
-          ? `${safetyDistance} cm a biztonsági határig`
-          : `${Math.abs(safetyDistance)} cm-rel a biztonsági határ alatt`
-        : "—";
-
     const html = `<!doctype html>
 <html lang="hu">
-<head>
 
+<head>
 <meta charset="utf-8">
 
 <meta name="viewport"
@@ -167,9 +152,24 @@ content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 
 <meta name="apple-mobile-web-app-title"
-content="PAKS">
+content="PAKS ADATOK">
 
 <title>PAKS aktuális adatok</title>
+
+<meta property="og:title"
+content="PAKS aktuális adatok">
+
+<meta property="og:description"
+content="A Paksi Atomerőmű aktuális blokkteljesítménye és a Duna paksi vízállása egy helyen.">
+
+<meta property="og:type"
+content="website">
+
+<meta property="og:url"
+content="https://paks-monitor.laszlo-iglodi.workers.dev">
+
+<meta name="twitter:card"
+content="summary">
 
 <style>
 
@@ -180,58 +180,69 @@ content="PAKS">
 html,body{
   margin:0;
   width:100%;
-  min-height:100%;
+  height:100%;
   background:#05080d;
-  color:#fff;
-  font-family:-apple-system,BlinkMacSystemFont,
-  "Segoe UI",Roboto,Arial,sans-serif;
+  color:white;
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Arial,
+    sans-serif;
 }
 
 body{
-  display:flex;
-  justify-content:center;
+  overflow:hidden;
 }
 
 main{
-  width:min(100%,500px);
+  width:100%;
+  max-width:500px;
+  height:100dvh;
+  margin:auto;
+
   padding:
-    max(10px,env(safe-area-inset-top))
-    14px
-    max(10px,env(safe-area-inset-bottom));
+    max(7px,env(safe-area-inset-top))
+    11px
+    max(5px,env(safe-area-inset-bottom));
+
+  display:flex;
+  flex-direction:column;
+  gap:6px;
 }
 
-
-/* HEADER */
-
 .header{
+  height:38px;
   display:flex;
   align-items:center;
   justify-content:space-between;
-  margin-bottom:10px;
+  flex-shrink:0;
 }
 
-.titleWrap{
+.brand{
   display:flex;
   align-items:center;
-  gap:9px;
+  gap:7px;
 }
 
-.logo{
-  width:38px;
-  height:38px;
-  border-radius:11px;
+.atom{
+  width:32px;
+  height:32px;
+  border-radius:9px;
   display:grid;
   place-items:center;
-  font-size:24px;
+  font-size:20px;
+
   background:
-    linear-gradient(145deg,#8e3fd1,#471270);
-  box-shadow:
-    0 4px 16px rgba(151,70,226,.28);
+    linear-gradient(
+      145deg,
+      #8d3fd0,
+      #411064
+    );
 }
 
 .title{
-  font-size:22px;
-  line-height:1;
+  font-size:19px;
   font-weight:900;
   letter-spacing:-.4px;
 }
@@ -239,194 +250,170 @@ main{
 .live{
   display:flex;
   align-items:center;
-  gap:5px;
+  gap:4px;
+  padding:4px 7px;
+  border-radius:30px;
+  background:#0d2112;
+  border:1px solid #245029;
+  color:#75e369;
   font-size:9px;
   font-weight:800;
-  color:#7ce56d;
-  border:1px solid #244d29;
-  background:#0d2112;
-  padding:5px 8px;
-  border-radius:99px;
 }
 
-.liveDot{
+.dot{
   width:6px;
   height:6px;
   border-radius:50%;
-  background:#6de55d;
-  box-shadow:0 0 8px #6de55d;
+  background:#75e369;
+  box-shadow:0 0 7px #75e369;
 }
-
-
-/* MAIN CARD */
 
 .card{
-  background:#0b1017;
-  border:1px solid #242d38;
-  border-radius:18px;
+  background:#0c1118;
+  border:1px solid #242e39;
+  border-radius:15px;
   overflow:hidden;
-  margin-bottom:10px;
+  flex-shrink:0;
 }
 
-.cardHead{
-  padding:12px 14px 5px;
-}
-
-.eyebrow{
-  color:#9ca8b7;
-  font-size:11px;
-  font-weight:750;
+.cardTitle{
+  color:#9ba8b7;
+  font-size:9px;
+  font-weight:800;
   letter-spacing:.45px;
 }
 
-.totalRow{
+.powerCard{
+  padding:9px 10px 7px;
+}
+
+.powerTop{
   display:flex;
   align-items:flex-end;
   justify-content:space-between;
-  gap:10px;
-  padding:0 14px 10px;
+  margin-top:2px;
+  margin-bottom:6px;
 }
 
 .total{
-  font-size:47px;
-  line-height:.95;
+  color:#75e169;
+  font-size:36px;
+  line-height:1;
   font-weight:950;
-  letter-spacing:-1.8px;
-  color:#76e16b;
+  letter-spacing:-1.3px;
 }
 
-.totalLabel{
-  color:#778594;
-  font-size:10px;
-  margin-bottom:5px;
+.totalText{
+  color:#748294;
+  font-size:8px;
+  margin-bottom:3px;
 }
-
-
-/* BLOCKS */
 
 .blocks{
   display:grid;
   grid-template-columns:1fr 1fr;
-  gap:7px;
-  padding:0 12px 10px;
+  grid-template-rows:1fr 1fr;
+  gap:5px;
 }
 
 .block{
-  min-height:72px;
-  border-radius:12px;
-  background:#111923;
-  border:1px solid #172331;
-  padding:9px 11px;
+  min-height:51px;
+  background:#121a24;
+  border:1px solid #172431;
+  border-radius:10px;
+  padding:6px 9px;
 }
 
-.blockTitle{
-  color:#9ba9b9;
-  font-size:11px;
-  font-weight:650;
-  margin-bottom:5px;
+.blockName{
+  color:#92a0b1;
+  font-size:9px;
+  margin-bottom:2px;
 }
 
-.blockPower{
-  font-size:27px;
+.blockValue{
+  font-size:20px;
   line-height:1;
   font-weight:900;
-  letter-spacing:-.5px;
 }
 
-.meta{
-  border-top:1px solid #1a222c;
-  padding:7px 13px;
-  color:#738295;
-  font-size:9px;
+.source{
+  color:#68788b;
+  font-size:8px;
+  margin-top:5px;
 }
 
-
-/* RIVER */
-
-.riverHead{
-  padding:12px 14px 0;
+.riverCard{
+  padding:9px 10px 7px;
 }
 
-.riverMain{
-  padding:2px 14px 4px;
+.riverTop{
   display:flex;
   align-items:flex-end;
   justify-content:space-between;
+  margin-top:2px;
 }
 
 .water{
-  color:#5daeff;
-  font-size:46px;
-  line-height:.95;
+  color:#59adff;
+  font-size:36px;
+  line-height:1;
   font-weight:950;
-  letter-spacing:-1.5px;
+  letter-spacing:-1.2px;
 }
 
 .state{
-  font-size:10px;
-  font-weight:850;
-  margin-bottom:6px;
-  text-align:right;
+  font-size:9px;
+  font-weight:900;
+  margin-bottom:3px;
 }
 
-.state.ok{
-  color:#7ce16e;
+.ok{
+  color:#75df69;
 }
 
-.state.warning{
+.warning{
   color:#ffad35;
 }
 
-.state.danger{
-  color:#ff5f60;
+.danger{
+  color:#ff5d61;
 }
-
-
-/* METRICS */
 
 .metrics{
   display:grid;
   grid-template-columns:1fr 1fr;
-  gap:7px;
-  padding:7px 12px 9px;
+  gap:5px;
+  margin-top:6px;
 }
 
 .metric{
-  border-radius:12px;
-  background:#111923;
-  padding:9px 11px;
+  background:#121a24;
+  border-radius:9px;
+  padding:6px 8px;
 }
 
-.metricLabel{
-  color:#8d9bad;
-  font-size:10px;
-  margin-bottom:3px;
+.metricName{
+  color:#8998aa;
+  font-size:8px;
 }
 
 .metricValue{
-  font-size:21px;
-  line-height:1.05;
+  margin-top:1px;
+  font-size:16px;
   font-weight:850;
-}
-
-
-/* GAUGE */
-
-.gaugeArea{
-  padding:0 13px 8px;
 }
 
 .gauge{
   position:relative;
-  height:14px;
-  border-radius:999px;
-  overflow:visible;
+  height:10px;
+  border-radius:99px;
+  margin-top:7px;
 
   background:
     linear-gradient(
       90deg,
-      #55c85d 0%,
-      #55c85d 60%,
+      #55c65b 0%,
+      #55c65b 60%,
       #ffab35 60%,
       #ffab35 85%,
       #ed575a 85%,
@@ -437,97 +424,73 @@ main{
 .marker{
   position:absolute;
   left:${markerPct}%;
-  top:-7px;
-
-  width:4px;
-  height:28px;
-
-  background:#fff;
-
-  transform:translateX(-50%);
-
+  top:-5px;
+  width:3px;
+  height:20px;
+  background:white;
   border-radius:2px;
-
-  box-shadow:
-    0 0 0 1px rgba(0,0,0,.25),
-    0 0 8px rgba(255,255,255,.45);
-}
-
-.marker:before{
-  content:"";
-  position:absolute;
-
-  top:-6px;
-  left:50%;
-
   transform:translateX(-50%);
-
-  width:0;
-  height:0;
-
-  border-left:5px solid transparent;
-  border-right:5px solid transparent;
-  border-bottom:6px solid #fff;
+  box-shadow:0 0 6px white;
 }
 
 .scale{
   display:grid;
   grid-template-columns:1fr 1fr 1fr;
-  margin-top:6px;
-  font-size:9px;
-  color:#909cab;
-}
-
-.scale span:nth-child(1){
-  text-align:left;
+  margin-top:3px;
+  font-size:8px;
+  color:#8492a2;
 }
 
 .scale span:nth-child(2){
-  color:#ffad35;
   text-align:center;
+  color:#ffad35;
 }
 
 .scale span:nth-child(3){
-  color:#ff6565;
   text-align:right;
+  color:#ff6264;
 }
 
-
-/* ALERT BOX */
-
-.distance{
+.distances{
   display:grid;
   grid-template-columns:1fr 1fr;
-  gap:6px;
-  padding:0 12px 9px;
+  gap:5px;
+  margin-top:5px;
 }
 
-.distanceBox{
-  background:#111923;
-  border-radius:11px;
-  padding:8px 9px;
+.distance{
+  background:#121a24;
+  border-radius:9px;
+  padding:5px 7px;
 }
 
-.distanceValue{
-  font-size:15px;
-  font-weight:850;
-  line-height:1.1;
+.distanceNumber{
+  font-size:14px;
+  font-weight:900;
 }
 
-.distanceLabel{
-  color:#8593a4;
-  font-size:8px;
-  margin-top:3px;
+.distanceText{
+  color:#8190a1;
+  font-size:7px;
+  margin-top:1px;
 }
-
-
-/* FOOT */
 
 .footer{
-  text-align:center;
-  color:#6f7c8d;
-  font-size:8px;
-  margin-top:2px;
+  margin-top:auto;
+  min-height:16px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:7px;
+  color:#657487;
+  font-size:7px;
+  letter-spacing:.2px;
+}
+
+.iglodi{
+  color:#a45add;
+  font-weight:950;
+  letter-spacing:1.6px;
 }
 
 </style>
@@ -539,19 +502,21 @@ main{
 
 <div class="header">
 
-  <div class="titleWrap">
+  <div class="brand">
 
-    <div class="logo">⚛️</div>
+    <div class="atom">
+      ⚛️
+    </div>
 
     <div class="title">
-      PAKS AKTUÁLIS<br>ADATOK
+      PAKS AKTUÁLIS ADATOK
     </div>
 
   </div>
 
   <div class="live">
 
-    <span class="liveDot"></span>
+    <span class="dot"></span>
 
     ÉLŐ
 
@@ -560,79 +525,62 @@ main{
 </div>
 
 
-<!-- ERŐMŰ -->
+<section class="card powerCard">
 
-<div class="card">
-
-  <div class="cardHead">
-
-    <div class="eyebrow">
-      PAKSI ATOMERŐMŰ TELJESÍTMÉNYE
-    </div>
-
+  <div class="cardTitle">
+    PAKSI ATOMERŐMŰ TELJESÍTMÉNYE
   </div>
 
-  <div class="totalRow">
+  <div class="powerTop">
 
     <div class="total">
       ${total} MW
     </div>
 
-    <div class="totalLabel">
+    <div class="totalText">
       ÖSSZTELJESÍTMÉNY
     </div>
 
   </div>
 
-
   <div class="blocks">
 
-    ${blocks.map((v,i)=>`
+    <div class="block">
+      <div class="blockName">1. BLOKK</div>
+      <div class="blockValue">${blocks[0]} MW</div>
+    </div>
 
-      <div class="block">
+    <div class="block">
+      <div class="blockName">2. BLOKK</div>
+      <div class="blockValue">${blocks[1]} MW</div>
+    </div>
 
-        <div class="blockTitle">
-          ${i+1}. BLOKK
-        </div>
+    <div class="block">
+      <div class="blockName">3. BLOKK</div>
+      <div class="blockValue">${blocks[2]} MW</div>
+    </div>
 
-        <div class="blockPower">
-          ${v} MW
-        </div>
-
-      </div>
-
-    `).join("")}
-
-  </div>
-
-
-  <div class="meta">
-
-    OAH
-    &nbsp;•&nbsp;
-    ${shortTime(oahTime)}
-    &nbsp;•&nbsp;
-    ${oahStatus}
-
-  </div>
-
-</div>
-
-
-<!-- DUNA -->
-
-<div class="card">
-
-  <div class="riverHead">
-
-    <div class="eyebrow">
-      🌊 DUNA VÍZÁLLÁSA PAKSNÁL
+    <div class="block">
+      <div class="blockName">4. BLOKK</div>
+      <div class="blockValue">${blocks[3]} MW</div>
     </div>
 
   </div>
 
+  <div class="source">
+    OAH • ${shortTime(oahTime)} • ${oahStatus}
+  </div>
 
-  <div class="riverMain">
+</section>
+
+
+<section class="card riverCard">
+
+  <div class="cardTitle">
+    🌊 DUNA VÍZÁLLÁSA PAKSNÁL
+  </div>
+
+  <div class="riverTop">
 
     <div class="water">
       ${waterText}
@@ -644,12 +592,11 @@ main{
 
   </div>
 
-
   <div class="metrics">
 
     <div class="metric">
 
-      <div class="metricLabel">
+      <div class="metricName">
         VÍZHOZAM
       </div>
 
@@ -659,10 +606,9 @@ main{
 
     </div>
 
-
     <div class="metric">
 
-      <div class="metricLabel">
+      <div class="metricName">
         VÍZHŐMÉRSÉKLET
       </div>
 
@@ -674,38 +620,29 @@ main{
 
   </div>
 
+  <div class="gauge">
 
-  <div class="gaugeArea">
-
-    <div class="gauge">
-
-      ${
-        typeof water === "number"
-          ? `<div class="marker"></div>`
-          : ""
-      }
-
-    </div>
-
-
-    <div class="scale">
-
-      <span>NORMÁL</span>
-
-      <span>−134 CM</span>
-
-      <span>−144 CM</span>
-
-    </div>
+    ${
+      typeof water === "number"
+        ? `<div class="marker"></div>`
+        : ""
+    }
 
   </div>
 
+  <div class="scale">
 
-  <div class="distance">
+    <span>NORMÁL</span>
+    <span>−134 CM</span>
+    <span>−144 CM</span>
 
-    <div class="distanceBox">
+  </div>
 
-      <div class="distanceValue">
+  <div class="distances">
+
+    <div class="distance">
+
+      <div class="distanceNumber">
         ${
           shutdownDistance !== null
             ? Math.abs(shutdownDistance) + " cm"
@@ -713,16 +650,15 @@ main{
         }
       </div>
 
-      <div class="distanceLabel">
+      <div class="distanceText">
         LEÁLLÁSI KÜSZÖBIG
       </div>
 
     </div>
 
+    <div class="distance">
 
-    <div class="distanceBox">
-
-      <div class="distanceValue">
+      <div class="distanceNumber">
         ${
           safetyDistance !== null
             ? Math.abs(safetyDistance) + " cm"
@@ -730,7 +666,7 @@ main{
         }
       </div>
 
-      <div class="distanceLabel">
+      <div class="distanceText">
         BIZTONSÁGI HATÁRIG
       </div>
 
@@ -738,38 +674,36 @@ main{
 
   </div>
 
-
-  <div class="meta">
-
-    Vízügy
-    &nbsp;•&nbsp;
-    ${shortTime(riverTime)}
-    &nbsp;•&nbsp;
-    ${riverStatus}
-
+  <div class="source">
+    VÍZÜGY • ${shortTime(riverTime)} • ${riverStatus}
   </div>
 
-</div>
+</section>
 
 
 <div class="footer">
 
-  AUTOMATIKUS FRISSÍTÉS • 5 PERC
+  <span>
+    AUTOMATIKUS FRISSÍTÉS • 5 PERC
+  </span>
+
+  <span>•</span>
+
+  <span class="iglodi">
+    IGLÓDI
+  </span>
 
 </div>
-
 
 </main>
 
 </body>
-
 </html>`;
 
-
-    return new Response(html,{
-      headers:{
-        "content-type":"text/html;charset=UTF-8",
-        "cache-control":"no-store"
+    return new Response(html, {
+      headers: {
+        "content-type": "text/html;charset=UTF-8",
+        "cache-control": "no-store"
       }
     });
   }
