@@ -99,325 +99,672 @@ export default {
           })
         : "—";
 
+    const shortTime = s => {
+      const m = String(s).match(/(\d{2}:\d{2})/);
+      return m ? m[1] : "—";
+    };
+
     const waterText =
       typeof water === "number" ? `${water} cm` : "— cm";
 
     const shutdownDistance =
       typeof water === "number" ? water + 134 : null;
 
+    const safetyDistance =
+      typeof water === "number" ? water + 144 : null;
+
     let riverClass = "ok";
-    let riverLabel = "Normál";
+    let riverLabel = "NORMÁL TARTOMÁNY";
 
     if (typeof water === "number") {
       if (water <= -144) {
         riverClass = "danger";
-        riverLabel = "Kritikus";
+        riverLabel = "KRITIKUS VÍZSZINT";
       } else if (water <= -134) {
         riverClass = "warning";
-        riverLabel = "Leállási tartomány";
+        riverLabel = "LEÁLLÁSI TARTOMÁNY";
       } else if (water <= -129) {
         riverClass = "warning";
-        riverLabel = "Figyelmeztetés";
+        riverLabel = "FIGYELMEZTETÉSI TARTOMÁNY";
       }
     }
 
     let markerPct = 0;
 
+    // Skála: -110 ... -150 cm
     if (typeof water === "number") {
       markerPct = ((-110 - water) / 40) * 100;
       markerPct = Math.max(0, Math.min(100, markerPct));
     }
 
-    const distanceText =
+    const shutdownText =
       typeof shutdownDistance === "number"
         ? shutdownDistance >= 0
           ? `${shutdownDistance} cm a leállási küszöbig`
           : `${Math.abs(shutdownDistance)} cm-rel a küszöb alatt`
         : "—";
 
-    const shortTime = s => {
-      const m = String(s).match(/(\d{2}:\d{2})/);
-      return m ? m[1] : "—";
-    };
+    const safetyText =
+      typeof safetyDistance === "number"
+        ? safetyDistance >= 0
+          ? `${safetyDistance} cm a biztonsági határig`
+          : `${Math.abs(safetyDistance)} cm-rel a biztonsági határ alatt`
+        : "—";
 
     const html = `<!doctype html>
 <html lang="hu">
 <head>
+
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+
+<meta name="viewport"
+content="width=device-width,initial-scale=1,viewport-fit=cover">
+
 <meta http-equiv="refresh" content="300">
-<meta name="theme-color" content="#07101d">
+
+<meta name="theme-color" content="#05080d">
+
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>Paks aktuális adatok</title>
+
+<meta name="apple-mobile-web-app-title"
+content="PAKS">
+
+<title>PAKS aktuális adatok</title>
 
 <style>
-*{box-sizing:border-box}
+
+*{
+  box-sizing:border-box;
+}
 
 html,body{
   margin:0;
-  height:100%;
-  background:#07101d;
+  width:100%;
+  min-height:100%;
+  background:#05080d;
   color:#fff;
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
+  font-family:-apple-system,BlinkMacSystemFont,
+  "Segoe UI",Roboto,Arial,sans-serif;
 }
 
 body{
   display:flex;
   justify-content:center;
-  overflow:hidden
 }
 
 main{
-  width:min(100%,480px);
-  height:100vh;
-  padding:10px 12px 8px;
-  display:flex;
-  flex-direction:column;
-  gap:8px
+  width:min(100%,500px);
+  padding:
+    max(10px,env(safe-area-inset-top))
+    14px
+    max(10px,env(safe-area-inset-bottom));
 }
+
+
+/* HEADER */
 
 .header{
   display:flex;
   align-items:center;
   justify-content:space-between;
-  min-height:42px
+  margin-bottom:10px;
+}
+
+.titleWrap{
+  display:flex;
+  align-items:center;
+  gap:9px;
+}
+
+.logo{
+  width:38px;
+  height:38px;
+  border-radius:11px;
+  display:grid;
+  place-items:center;
+  font-size:24px;
+  background:
+    linear-gradient(145deg,#8e3fd1,#471270);
+  box-shadow:
+    0 4px 16px rgba(151,70,226,.28);
 }
 
 .title{
   font-size:22px;
-  font-weight:850;
-  letter-spacing:.01em
+  line-height:1;
+  font-weight:900;
+  letter-spacing:-.4px;
 }
 
 .live{
-  font-size:10px;
-  color:#7ddc73;
-  padding:4px 7px;
-  border-radius:20px;
-  background:#102718
+  display:flex;
+  align-items:center;
+  gap:5px;
+  font-size:9px;
+  font-weight:800;
+  color:#7ce56d;
+  border:1px solid #244d29;
+  background:#0d2112;
+  padding:5px 8px;
+  border-radius:99px;
 }
 
-.hero{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:8px
+.liveDot{
+  width:6px;
+  height:6px;
+  border-radius:50%;
+  background:#6de55d;
+  box-shadow:0 0 8px #6de55d;
 }
 
-.heroBox{
-  background:linear-gradient(145deg,#142235,#0c1726);
-  border:1px solid #29405a;
-  border-radius:16px;
-  padding:11px 12px
+
+/* MAIN CARD */
+
+.card{
+  background:#0b1017;
+  border:1px solid #242d38;
+  border-radius:18px;
+  overflow:hidden;
+  margin-bottom:10px;
 }
 
-.kicker{
-  color:#9cafc7;
-  font-size:10px;
-  text-transform:uppercase
+.cardHead{
+  padding:12px 14px 5px;
 }
 
-.big{
-  font-size:34px;
-  line-height:1;
-  font-weight:900;
-  margin-top:3px
-}
-
-.power{color:#75df67}
-.river{color:#5baeff}
-
-.sub{
+.eyebrow{
+  color:#9ca8b7;
   font-size:11px;
-  margin-top:4px
+  font-weight:750;
+  letter-spacing:.45px;
 }
 
-.ok{color:#75df67}
-.warning{color:#ffb43b}
-.danger{color:#ff6666}
-
-.panel{
-  background:#101d2d;
-  border:1px solid #29405a;
-  border-radius:16px;
-  padding:10px 11px
+.totalRow{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:10px;
+  padding:0 14px 10px;
 }
+
+.total{
+  font-size:47px;
+  line-height:.95;
+  font-weight:950;
+  letter-spacing:-1.8px;
+  color:#76e16b;
+}
+
+.totalLabel{
+  color:#778594;
+  font-size:10px;
+  margin-bottom:5px;
+}
+
+
+/* BLOCKS */
 
 .blocks{
   display:grid;
-  grid-template-columns:repeat(4,1fr);
-  gap:6px
+  grid-template-columns:1fr 1fr;
+  gap:7px;
+  padding:0 12px 10px;
 }
 
 .block{
-  background:#091524;
-  border-radius:10px;
-  padding:7px 5px;
-  text-align:center
+  min-height:72px;
+  border-radius:12px;
+  background:#111923;
+  border:1px solid #172331;
+  padding:9px 11px;
 }
 
-.block span{
-  display:block;
-  color:#9cafc7;
-  font-size:9px
+.blockTitle{
+  color:#9ba9b9;
+  font-size:11px;
+  font-weight:650;
+  margin-bottom:5px;
 }
 
-.block b{
-  display:block;
-  font-size:17px;
-  margin-top:2px
+.blockPower{
+  font-size:27px;
+  line-height:1;
+  font-weight:900;
+  letter-spacing:-.5px;
 }
+
+.meta{
+  border-top:1px solid #1a222c;
+  padding:7px 13px;
+  color:#738295;
+  font-size:9px;
+}
+
+
+/* RIVER */
+
+.riverHead{
+  padding:12px 14px 0;
+}
+
+.riverMain{
+  padding:2px 14px 4px;
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+}
+
+.water{
+  color:#5daeff;
+  font-size:46px;
+  line-height:.95;
+  font-weight:950;
+  letter-spacing:-1.5px;
+}
+
+.state{
+  font-size:10px;
+  font-weight:850;
+  margin-bottom:6px;
+  text-align:right;
+}
+
+.state.ok{
+  color:#7ce16e;
+}
+
+.state.warning{
+  color:#ffad35;
+}
+
+.state.danger{
+  color:#ff5f60;
+}
+
+
+/* METRICS */
 
 .metrics{
   display:grid;
   grid-template-columns:1fr 1fr;
-  gap:6px;
-  margin-top:7px
+  gap:7px;
+  padding:7px 12px 9px;
 }
 
 .metric{
-  background:#091524;
-  border-radius:10px;
-  padding:8px
+  border-radius:12px;
+  background:#111923;
+  padding:9px 11px;
 }
 
-.metric span{
-  color:#9cafc7;
-  font-size:9px
+.metricLabel{
+  color:#8d9bad;
+  font-size:10px;
+  margin-bottom:3px;
 }
 
-.metric b{
-  display:block;
-  margin-top:2px;
-  font-size:17px
+.metricValue{
+  font-size:21px;
+  line-height:1.05;
+  font-weight:850;
+}
+
+
+/* GAUGE */
+
+.gaugeArea{
+  padding:0 13px 8px;
 }
 
 .gauge{
   position:relative;
-  height:10px;
-  border-radius:8px;
-  margin-top:9px;
-  background:linear-gradient(
-    90deg,
-    #5ac75a 0 60%,
-    #ffb33b 60% 85%,
-    #ef5858 85% 100%
-  )
+  height:14px;
+  border-radius:999px;
+  overflow:visible;
+
+  background:
+    linear-gradient(
+      90deg,
+      #55c85d 0%,
+      #55c85d 60%,
+      #ffab35 60%,
+      #ffab35 85%,
+      #ed575a 85%,
+      #ed575a 100%
+    );
 }
 
 .marker{
   position:absolute;
   left:${markerPct}%;
-  top:-6px;
-  width:3px;
-  height:22px;
+  top:-7px;
+
+  width:4px;
+  height:28px;
+
   background:#fff;
+
   transform:translateX(-50%);
-  box-shadow:0 0 0 1px rgba(0,0,0,.3)
+
+  border-radius:2px;
+
+  box-shadow:
+    0 0 0 1px rgba(0,0,0,.25),
+    0 0 8px rgba(255,255,255,.45);
+}
+
+.marker:before{
+  content:"";
+  position:absolute;
+
+  top:-6px;
+  left:50%;
+
+  transform:translateX(-50%);
+
+  width:0;
+  height:0;
+
+  border-left:5px solid transparent;
+  border-right:5px solid transparent;
+  border-bottom:6px solid #fff;
 }
 
 .scale{
-  display:flex;
-  justify-content:space-between;
-  margin-top:4px;
-  font-size:9px
+  display:grid;
+  grid-template-columns:1fr 1fr 1fr;
+  margin-top:6px;
+  font-size:9px;
+  color:#909cab;
 }
 
-.scale span:nth-child(2){color:#ffb33b}
-.scale span:nth-child(3){color:#ff6b6b}
+.scale span:nth-child(1){
+  text-align:left;
+}
+
+.scale span:nth-child(2){
+  color:#ffad35;
+  text-align:center;
+}
+
+.scale span:nth-child(3){
+  color:#ff6565;
+  text-align:right;
+}
+
+
+/* ALERT BOX */
 
 .distance{
-  margin-top:6px;
-  font-size:12px;
-  font-weight:700
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:6px;
+  padding:0 12px 9px;
 }
 
-.source{
-  margin-top:auto;
-  font-size:9px;
-  color:#8397b3;
-  text-align:center;
-  white-space:nowrap
+.distanceBox{
+  background:#111923;
+  border-radius:11px;
+  padding:8px 9px;
 }
+
+.distanceValue{
+  font-size:15px;
+  font-weight:850;
+  line-height:1.1;
+}
+
+.distanceLabel{
+  color:#8593a4;
+  font-size:8px;
+  margin-top:3px;
+}
+
+
+/* FOOT */
+
+.footer{
+  text-align:center;
+  color:#6f7c8d;
+  font-size:8px;
+  margin-top:2px;
+}
+
 </style>
 </head>
 
 <body>
+
 <main>
 
 <div class="header">
-  <div class="title">⚛️ PAKS AKTUÁLIS ADATOK</div>
-  <div class="live">● ÉLŐ</div>
-</div>
 
-<div class="hero">
+  <div class="titleWrap">
 
-  <div class="heroBox">
-    <div class="kicker">Erőmű</div>
-    <div class="big power">${total} MW</div>
-    <div class="sub">összteljesítmény</div>
+    <div class="logo">⚛️</div>
+
+    <div class="title">
+      PAKS AKTUÁLIS<br>ADATOK
+    </div>
+
   </div>
 
-  <div class="heroBox">
-    <div class="kicker">Duna • Paks</div>
-    <div class="big river">${waterText}</div>
-    <div class="sub ${riverClass}">${riverLabel}</div>
+  <div class="live">
+
+    <span class="liveDot"></span>
+
+    ÉLŐ
+
   </div>
 
 </div>
 
-<div class="panel">
+
+<!-- ERŐMŰ -->
+
+<div class="card">
+
+  <div class="cardHead">
+
+    <div class="eyebrow">
+      PAKSI ATOMERŐMŰ TELJESÍTMÉNYE
+    </div>
+
+  </div>
+
+  <div class="totalRow">
+
+    <div class="total">
+      ${total} MW
+    </div>
+
+    <div class="totalLabel">
+      ÖSSZTELJESÍTMÉNY
+    </div>
+
+  </div>
+
 
   <div class="blocks">
+
     ${blocks.map((v,i)=>`
+
       <div class="block">
-        <span>${i+1}. blokk</span>
-        <b>${v}</b>
-        <span>MW</span>
+
+        <div class="blockTitle">
+          ${i+1}. BLOKK
+        </div>
+
+        <div class="blockPower">
+          ${v} MW
+        </div>
+
       </div>
+
     `).join("")}
+
+  </div>
+
+
+  <div class="meta">
+
+    OAH
+    &nbsp;•&nbsp;
+    ${shortTime(oahTime)}
+    &nbsp;•&nbsp;
+    ${oahStatus}
+
   </div>
 
 </div>
 
-<div class="panel">
+
+<!-- DUNA -->
+
+<div class="card">
+
+  <div class="riverHead">
+
+    <div class="eyebrow">
+      🌊 DUNA VÍZÁLLÁSA PAKSNÁL
+    </div>
+
+  </div>
+
+
+  <div class="riverMain">
+
+    <div class="water">
+      ${waterText}
+    </div>
+
+    <div class="state ${riverClass}">
+      ${riverLabel}
+    </div>
+
+  </div>
+
 
   <div class="metrics">
 
     <div class="metric">
-      <span>VÍZHOZAM</span>
-      <b>${fmt1(flow)} m³/s</b>
+
+      <div class="metricLabel">
+        VÍZHOZAM
+      </div>
+
+      <div class="metricValue">
+        ${fmt1(flow)} m³/s
+      </div>
+
     </div>
+
 
     <div class="metric">
-      <span>VÍZHŐMÉRSÉKLET</span>
-      <b>${fmt1(temp)} °C</b>
+
+      <div class="metricLabel">
+        VÍZHŐMÉRSÉKLET
+      </div>
+
+      <div class="metricValue">
+        ${fmt1(temp)} °C
+      </div>
+
     </div>
 
   </div>
 
-  <div class="gauge">
-    ${typeof water === "number" ? `<div class="marker"></div>` : ""}
+
+  <div class="gaugeArea">
+
+    <div class="gauge">
+
+      ${
+        typeof water === "number"
+          ? `<div class="marker"></div>`
+          : ""
+      }
+
+    </div>
+
+
+    <div class="scale">
+
+      <span>NORMÁL</span>
+
+      <span>−134 CM</span>
+
+      <span>−144 CM</span>
+
+    </div>
+
   </div>
 
-  <div class="scale">
-    <span>normál</span>
-    <span>−134 cm</span>
-    <span>−144 cm</span>
-  </div>
 
   <div class="distance">
-    ${distanceText}
+
+    <div class="distanceBox">
+
+      <div class="distanceValue">
+        ${
+          shutdownDistance !== null
+            ? Math.abs(shutdownDistance) + " cm"
+            : "—"
+        }
+      </div>
+
+      <div class="distanceLabel">
+        LEÁLLÁSI KÜSZÖBIG
+      </div>
+
+    </div>
+
+
+    <div class="distanceBox">
+
+      <div class="distanceValue">
+        ${
+          safetyDistance !== null
+            ? Math.abs(safetyDistance) + " cm"
+            : "—"
+        }
+      </div>
+
+      <div class="distanceLabel">
+        BIZTONSÁGI HATÁRIG
+      </div>
+
+    </div>
+
+  </div>
+
+
+  <div class="meta">
+
+    Vízügy
+    &nbsp;•&nbsp;
+    ${shortTime(riverTime)}
+    &nbsp;•&nbsp;
+    ${riverStatus}
+
   </div>
 
 </div>
 
+
 <div class="footer">
-  AUTOMATIKUS FRISSÍTÉS • 5 PERC • IGLÓDI
+
+  AUTOMATIKUS FRISSÍTÉS • 5 PERC
+
 </div>
 
+
 </main>
+
 </body>
+
 </html>`;
+
 
     return new Response(html,{
       headers:{
