@@ -11,6 +11,10 @@ const FB_IMAGE_RAW =
   "https://raw.githubusercontent.com/laszloiglodi-beep/Paks-monitor/main/60CF06BF-2068-420D-AC41-224FB3B75358.png";
 
 
+// ============================================================
+// SEGÉDFÜGGVÉNYEK
+// ============================================================
+
 function clean(html) {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -42,6 +46,111 @@ function shortTime(value) {
 
 
 // ============================================================
+// MAGYAR HELYI IDŐ → UNIX TIMESTAMP
+// ============================================================
+
+function getBudapestOffset(timestamp) {
+
+  const formatter =
+    new Intl.DateTimeFormat(
+      "en-GB",
+      {
+        timeZone: "Europe/Budapest",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23"
+      }
+    );
+
+
+  const parts =
+    formatter.formatToParts(
+      new Date(timestamp)
+    );
+
+
+  const values = {};
+
+  for (const part of parts) {
+
+    if (part.type !== "literal") {
+      values[part.type] = Number(part.value);
+    }
+  }
+
+
+  const localAsUTC =
+    Date.UTC(
+      values.year,
+      values.month - 1,
+      values.day,
+      values.hour,
+      values.minute,
+      values.second
+    );
+
+
+  return localAsUTC - timestamp;
+}
+
+
+function parseHuTimestamp(value) {
+
+  const match =
+    String(value || "").match(
+      /(\d{4})\.\s*(\d{2})\.\s*(\d{2})\.?\s*(\d{2}):(\d{2})/
+    );
+
+
+  if (!match) {
+    return null;
+  }
+
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+
+
+  const desiredLocalAsUTC =
+    Date.UTC(
+      year,
+      month - 1,
+      day,
+      hour,
+      minute,
+      0
+    );
+
+
+  let timestamp =
+    desiredLocalAsUTC;
+
+
+  // Két kör a DST / nyári-téli idő biztonságos kezeléséhez
+  for (let i = 0; i < 2; i++) {
+
+    const offset =
+      getBudapestOffset(timestamp);
+
+    timestamp =
+      desiredLocalAsUTC - offset;
+  }
+
+
+  return Number.isFinite(timestamp)
+    ? timestamp
+    : null;
+}
+
+
+// ============================================================
 // D1 TÁBLA
 // ============================================================
 
@@ -50,6 +159,7 @@ async function ensureDB(env) {
   if (!env || !env.DB) {
     throw new Error("DB binding missing");
   }
+
 
   await env.DB
     .prepare(
@@ -62,6 +172,57 @@ async function ensureDB(env) {
       ")"
     )
     .run();
+
+
+  await env.DB
+    .prepare(
+      "CREATE TABLE IF NOT EXISTS meta (" +
+      "key TEXT PRIMARY KEY, " +
+      "value TEXT" +
+      ")"
+    )
+    .run();
+
+
+  // ----------------------------------------------------------
+  // EGYSZERI MIGRÁCIÓ
+  // A korábbi 5 perces mesterséges pontok törlése.
+  // Csak egyszer fut le.
+  // ----------------------------------------------------------
+
+  const migration =
+    await env.DB
+      .prepare(
+        "SELECT value FROM meta WHERE key = ?"
+      )
+      .bind("source_timestamp_v1")
+      .first();
+
+
+  if (!migration) {
+
+    await env.DB
+      .prepare(
+        "DELETE FROM measurements"
+      )
+      .run();
+
+
+    await env.DB
+      .prepare(
+        "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)"
+      )
+      .bind(
+        "source_timestamp_v1",
+        "done"
+      )
+      .run();
+
+
+    console.log(
+      "D1 MIGRATION: old artificial history cleared"
+    );
+  }
 }
 
 
@@ -74,6 +235,7 @@ async function getCurrentData() {
   let blocks = ["—", "—", "—", "—"];
 
   let oahTime = "—";
+  let oahTimestamp = null;
   let oahStatus = "OK";
 
   let water = null;
@@ -81,39 +243,63 @@ async function getCurrentData() {
   let temp = null;
 
   let riverTime = "—";
+  let riverTimestamp = null;
   let riverStatus = "OK";
 
 
-  // ---------------- PAKS ----------------
+  // ==========================================================
+  // PAKS
+  // ==========================================================
 
   try {
 
-    const response = await fetch(OAH_URL, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (compatible; PaksMonitor/1.0)"
-      }
-    });
+    const response =
+      await fetch(
+        OAH_URL,
+        {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (compatible; PaksMonitor/1.0)"
+          }
+        }
+      );
+
 
     if (!response.ok) {
-      throw new Error("OAH HTTP " + response.status);
+      throw new Error(
+        "OAH HTTP " + response.status
+      );
     }
 
-    const text = clean(await response.text());
+
+    const text =
+      clean(
+        await response.text()
+      );
 
 
-    const date = text.match(
-      /Mérés dátuma:\s*([0-9]{4}\.\s*[0-9]{2}\.\s*[0-9]{2}\s*[0-9]{2}:[0-9]{2})/i
-    );
+    const date =
+      text.match(
+        /Mérés dátuma:\s*([0-9]{4}\.\s*[0-9]{2}\.\s*[0-9]{2}\.?\s*[0-9]{2}:[0-9]{2})/i
+      );
+
 
     if (date) {
-      oahTime = date[1];
+
+      oahTime =
+        date[1];
+
+      oahTimestamp =
+        parseHuTimestamp(
+          date[1]
+        );
     }
 
 
-    const power = text.match(
-      /1\.\s*blokk\s*2\.\s*blokk\s*3\.\s*blokk\s*4\.\s*blokk\s*(\d+)\s*MW\s*(\d+)\s*MW\s*(\d+)\s*MW\s*(\d+)\s*MW/i
-    );
+    const power =
+      text.match(
+        /1\.\s*blokk\s*2\.\s*blokk\s*3\.\s*blokk\s*4\.\s*blokk\s*(\d+)\s*MW\s*(\d+)\s*MW\s*(\d+)\s*MW\s*(\d+)\s*MW/i
+      );
 
 
     if (power) {
@@ -127,96 +313,200 @@ async function getCurrentData() {
 
     } else {
 
-      oahStatus = "ADATHIBA";
+      oahStatus =
+        "ADATHIBA";
     }
+
+
+    if (!Number.isFinite(oahTimestamp)) {
+
+      oahStatus =
+        oahStatus === "OK"
+          ? "IDŐHIBA"
+          : oahStatus;
+    }
+
 
   } catch (error) {
 
-    oahStatus = "KAPCSOLATI HIBA";
+    oahStatus =
+      "KAPCSOLATI HIBA";
+
+    console.log(
+      "OAH ERROR:",
+      error?.message || String(error)
+    );
   }
 
 
-  // ---------------- DUNA ----------------
+  // ==========================================================
+  // DUNA
+  // ==========================================================
 
   try {
 
-    const response = await fetch(VIZ_URL, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (compatible; PaksMonitor/1.0)"
-      }
-    });
+    const response =
+      await fetch(
+        VIZ_URL,
+        {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (compatible; PaksMonitor/1.0)"
+          }
+        }
+      );
+
 
     if (!response.ok) {
-      throw new Error("VIZ HTTP " + response.status);
+      throw new Error(
+        "VIZ HTTP " + response.status
+      );
     }
 
-    const text = clean(await response.text());
+
+    const text =
+      clean(
+        await response.text()
+      );
 
 
-    const row = text.match(
-      /(20\d{2}\.\d{2}\.\d{2}\.\s*\d{2}:\d{2})\s+(-?\d+)\s+(\d+[.,]\d+|-)\s+(\d+[.,]?\d*|-)\s+(\d+[.,]?\d*|-)/
-    );
+    // --------------------------------------------------------
+    // NEM AZ ELSŐ SORT VESSZÜK!
+    // Az összes mérési sort megkeressük,
+    // majd timestamp alapján kiválasztjuk a legfrissebbet.
+    // --------------------------------------------------------
+
+    const rowRegex =
+      /(20\d{2}\.\d{2}\.\d{2}\.?\s*\d{2}:\d{2})\s+(-?\d+)\s+(\d+[.,]\d+|-)\s+(\d+[.,]?\d*|-)\s+(\d+[.,]?\d*|-)/g;
 
 
-    if (row) {
+    let latestRow = null;
+    let match;
 
-      riverTime = row[1];
 
-      const waterValue = Number(row[2]);
+    while (
+      (match = rowRegex.exec(text)) !== null
+    ) {
+
+      const timestamp =
+        parseHuTimestamp(
+          match[1]
+        );
+
+
+      if (!Number.isFinite(timestamp)) {
+        continue;
+      }
+
+
+      if (
+        !latestRow ||
+        timestamp > latestRow.timestamp
+      ) {
+
+        latestRow = {
+          timestamp,
+          raw: match
+        };
+      }
+    }
+
+
+    if (latestRow) {
+
+      const row =
+        latestRow.raw;
+
+
+      riverTime =
+        row[1];
+
+      riverTimestamp =
+        latestRow.timestamp;
+
+
+      const waterValue =
+        Number(row[2]);
+
 
       if (Number.isFinite(waterValue)) {
-        water = waterValue;
+
+        water =
+          waterValue;
       }
 
 
       if (row[3] !== "-") {
 
-        const n = Number(
-          row[3].replace(",", ".")
-        );
+        const n =
+          Number(
+            row[3].replace(",", ".")
+          );
+
 
         if (Number.isFinite(n)) {
-          flow = n;
+
+          flow =
+            n;
         }
       }
 
 
       if (row[4] !== "-") {
 
-        const n = Number(
-          row[4].replace(",", ".")
-        );
+        const n =
+          Number(
+            row[4].replace(",", ".")
+          );
+
 
         if (Number.isFinite(n)) {
-          temp = n;
+
+          temp =
+            n;
         }
 
       } else if (row[5] !== "-") {
 
-        const n = Number(
-          row[5].replace(",", ".")
-        );
+        const n =
+          Number(
+            row[5].replace(",", ".")
+          );
+
 
         if (Number.isFinite(n)) {
-          temp = n;
+
+          temp =
+            n;
         }
       }
 
+
     } else {
 
-      riverStatus = "ADATHIBA";
+      riverStatus =
+        "ADATHIBA";
     }
+
 
   } catch (error) {
 
-    riverStatus = "KAPCSOLATI HIBA";
+    riverStatus =
+      "KAPCSOLATI HIBA";
+
+    console.log(
+      "VIZ ERROR:",
+      error?.message || String(error)
+    );
   }
 
 
   const validBlocks =
     blocks.every(
-      value => /^\d+$/.test(String(value))
+      value =>
+        /^\d+$/.test(
+          String(value)
+        )
     );
 
 
@@ -236,8 +526,13 @@ async function getCurrentData() {
     water,
     flow,
     temp,
+
     oahTime,
+    oahTimestamp,
+
     riverTime,
+    riverTimestamp,
+
     oahStatus,
     riverStatus
   };
@@ -255,36 +550,66 @@ async function saveMeasurement(env, data) {
     await ensureDB(env);
 
 
-    const bucket =
-      Math.floor(Date.now() / 300000) * 300000;
+    // ========================================================
+    // OAH TELJESÍTMÉNY
+    // Saját forrás-időbélyeggel
+    // ========================================================
+
+    if (
+      Number.isFinite(data.total) &&
+      Number.isFinite(data.oahTimestamp)
+    ) {
+
+      await env.DB
+        .prepare(
+          "INSERT INTO measurements " +
+          "(ts, power, water, flow, temp) " +
+          "VALUES (?, ?, NULL, NULL, NULL) " +
+          "ON CONFLICT(ts) DO UPDATE SET " +
+          "power = excluded.power"
+        )
+        .bind(
+          data.oahTimestamp,
+          data.total
+        )
+        .run();
+    }
 
 
-    await env.DB
-      .prepare(
-        "INSERT OR REPLACE INTO measurements " +
-        "(ts, power, water, flow, temp) " +
-        "VALUES (?, ?, ?, ?, ?)"
-      )
-      .bind(
-        bucket,
+    // ========================================================
+    // VÍZÜGY
+    // Saját forrás-időbélyeggel
+    // ========================================================
 
-        Number.isFinite(data.total)
-          ? data.total
-          : null,
+    if (
+      Number.isFinite(data.water) &&
+      Number.isFinite(data.riverTimestamp)
+    ) {
 
-        Number.isFinite(data.water)
-          ? data.water
-          : null,
+      await env.DB
+        .prepare(
+          "INSERT INTO measurements " +
+          "(ts, power, water, flow, temp) " +
+          "VALUES (?, NULL, ?, ?, ?) " +
+          "ON CONFLICT(ts) DO UPDATE SET " +
+          "water = excluded.water, " +
+          "flow = excluded.flow, " +
+          "temp = excluded.temp"
+        )
+        .bind(
+          data.riverTimestamp,
+          data.water,
 
-        Number.isFinite(data.flow)
-          ? data.flow
-          : null,
+          Number.isFinite(data.flow)
+            ? data.flow
+            : null,
 
-        Number.isFinite(data.temp)
-          ? data.temp
-          : null
-      )
-      .run();
+          Number.isFinite(data.temp)
+            ? data.temp
+            : null
+        )
+        .run();
+    }
 
 
     const cutoff =
@@ -302,8 +627,11 @@ async function saveMeasurement(env, data) {
 
     console.log(
       "D1 SAVE OK",
-      bucket,
+      "OAH:",
+      data.oahTimestamp,
       data.total,
+      "VIZ:",
+      data.riverTimestamp,
       data.water
     );
 
@@ -312,7 +640,8 @@ async function saveMeasurement(env, data) {
 
     console.log(
       "D1 SAVE ERROR:",
-      error?.message || String(error)
+      error?.message ||
+      String(error)
     );
   }
 }
@@ -326,19 +655,25 @@ export default {
 
   async fetch(request, env, ctx) {
 
-    const url = new URL(request.url);
+    const url =
+      new URL(request.url);
 
 
     // ========================================================
     // FACEBOOK KÉP
     // ========================================================
 
-    if (url.pathname === "/facebook-image") {
+    if (
+      url.pathname ===
+      "/facebook-image"
+    ) {
 
       try {
 
         const response =
-          await fetch(FB_IMAGE_RAW);
+          await fetch(
+            FB_IMAGE_RAW
+          );
 
 
         if (!response.ok) {
@@ -356,6 +691,7 @@ export default {
           response.body,
           {
             headers: {
+
               "content-type":
                 "image/png",
 
@@ -364,6 +700,7 @@ export default {
             }
           }
         );
+
 
       } catch (error) {
 
@@ -381,7 +718,10 @@ export default {
     // HISTORY API
     // ========================================================
 
-    if (url.pathname === "/api/history") {
+    if (
+      url.pathname ===
+      "/api/history"
+    ) {
 
       try {
 
@@ -390,18 +730,25 @@ export default {
 
         let hours =
           Number(
-            url.searchParams.get("hours") || 6
+            url.searchParams.get("hours") ||
+            6
           );
 
 
-        if (![6, 24, 240].includes(hours)) {
+        if (
+          ![6, 24, 240].includes(hours)
+        ) {
+
           hours = 6;
         }
 
 
         const cutoff =
           Date.now() -
-          hours * 60 * 60 * 1000;
+          hours *
+          60 *
+          60 *
+          1000;
 
 
         const result =
@@ -419,10 +766,12 @@ export default {
         return new Response(
           JSON.stringify({
             ok: true,
+
             count:
               Array.isArray(result.results)
                 ? result.results.length
                 : 0,
+
             data:
               Array.isArray(result.results)
                 ? result.results
@@ -430,7 +779,9 @@ export default {
           }),
           {
             status: 200,
+
             headers: {
+
               "content-type":
                 "application/json;charset=UTF-8",
 
@@ -454,7 +805,9 @@ export default {
           }),
           {
             status: 200,
+
             headers: {
+
               "content-type":
                 "application/json;charset=UTF-8",
 
@@ -477,11 +830,15 @@ export default {
 
     if (
       ctx &&
-      typeof ctx.waitUntil === "function"
+      typeof ctx.waitUntil ===
+        "function"
     ) {
 
       ctx.waitUntil(
-        saveMeasurement(env, data)
+        saveMeasurement(
+          env,
+          data
+        )
       );
     }
 
@@ -535,17 +892,27 @@ export default {
       if (water <= -144) {
 
         riverClass = "danger";
-        riverLabel = "KRITIKUS VÍZSZINT";
+
+        riverLabel =
+          "KRITIKUS VÍZSZINT";
+
 
       } else if (water <= -134) {
 
-        riverClass = "warning";
-        riverLabel = "LEÁLLÁSI TARTOMÁNY";
+        riverClass =
+          "warning";
+
+        riverLabel =
+          "LEÁLLÁSI TARTOMÁNY";
+
 
       } else if (water <= -129) {
 
-        riverClass = "warning";
-        riverLabel = "FIGYELMEZTETÉS";
+        riverClass =
+          "warning";
+
+        riverLabel =
+          "FIGYELMEZTETÉS";
       }
     }
 
@@ -556,13 +923,17 @@ export default {
     if (Number.isFinite(water)) {
 
       markerPct =
-        ((-110 - water) / 40) * 100;
+        ((-110 - water) / 40) *
+        100;
 
 
       markerPct =
         Math.max(
           0,
-          Math.min(100, markerPct)
+          Math.min(
+            100,
+            markerPct
+          )
         );
     }
 
@@ -595,7 +966,6 @@ export default {
 >
 
 <title>⚛️ PAKS AKTUÁLIS ADATOK</title>
-
 
 <meta property="og:type" content="website">
 
@@ -1139,7 +1509,8 @@ async function getHistory(hours){
 
     const response =
       await fetch(
-        "/api/history?hours=" + hours,
+        "/api/history?hours=" +
+        hours,
         {
           cache:"no-store"
         }
@@ -1155,6 +1526,7 @@ async function getHistory(hours){
       json.ok === true &&
       Array.isArray(json.data)
     ){
+
       return json.data;
     }
 
@@ -1235,25 +1607,32 @@ async function drawChart(
 
 
   const ratio =
-    window.devicePixelRatio || 1;
+    window.devicePixelRatio ||
+    1;
 
 
   canvas.width =
     Math.max(
       1,
-      Math.floor(rect.width * ratio)
+      Math.floor(
+        rect.width * ratio
+      )
     );
 
 
   canvas.height =
     Math.max(
       1,
-      Math.floor(rect.height * ratio)
+      Math.floor(
+        rect.height * ratio
+      )
     );
 
 
   const ctx =
-    canvas.getContext("2d");
+    canvas.getContext(
+      "2d"
+    );
 
 
   ctx.setTransform(
@@ -1291,7 +1670,6 @@ async function drawChart(
 
   ctx.strokeStyle =
     "rgba(115,145,170,.18)";
-
 
   ctx.lineWidth = 1;
 
@@ -1347,13 +1725,17 @@ async function drawChart(
 
   let minY =
     Math.min(
-      ...data.map(p => p.y)
+      ...data.map(
+        p => p.y
+      )
     );
 
 
   let maxY =
     Math.max(
-      ...data.map(p => p.y)
+      ...data.map(
+        p => p.y
+      )
     );
 
 
@@ -1570,7 +1952,7 @@ async function drawChart(
       "left";
 
     ctx.fillText(
-      "1 mérés – a következő pont után indul a görbe",
+      "1 mérés – a következő valódi mérés után indul a görbe",
       pad.left + 8,
       H / 2
     );
@@ -1608,7 +1990,9 @@ async function drawChart(
 
 
   const last =
-    data[data.length - 1];
+    data[
+      data.length - 1
+    ];
 
 
   ctx.beginPath();
@@ -1654,602 +2038,4 @@ function setRange(
 ){
 
   selectedRange[chart] =
-    hours;
-
-
-  document
-    .querySelectorAll(
-      '[data-chart="' +
-      chart +
-      '"]'
-    )
-    .forEach(
-      b =>
-        b.classList.remove(
-          "active"
-        )
-    );
-
-
-  button
-    .classList
-    .add("active");
-
-
-  cache = {};
-
-  redraw();
-}
-
-
-function copyLink(){
-
-  if(navigator.clipboard){
-
-    navigator.clipboard
-      .writeText(PUBLIC_URL)
-      .then(showToast);
-
-  }else{
-
-    window.prompt(
-      "Másold ki a linket:",
-      PUBLIC_URL
-    );
-  }
-}
-
-
-function showToast(){
-
-  const toast =
-    document.getElementById(
-      "toast"
-    );
-
-
-  toast
-    .classList
-    .add("show");
-
-
-  setTimeout(
-    () =>
-      toast
-        .classList
-        .remove("show"),
-    1500
-  );
-}
-
-
-window.addEventListener(
-  "load",
-  redraw
-);
-
-
-window.addEventListener(
-  "resize",
-  redraw
-);
-
-
-setInterval(
-  async () => {
-
-    cache = {};
-
-    await redraw();
-
-  },
-  300000
-);
-
-</script>
-
-</head>
-
-
-<body>
-
-
-<div class="app">
-
-
-<header class="header">
-
-  <div class="logo">
-    ⚛️
-  </div>
-
-  <div class="title">
-    PAKS AKTUÁLIS ADATOK
-  </div>
-
-  <div class="live">
-
-    <span class="liveDot"></span>
-
-    ÉLŐ
-
-  </div>
-
-</header>
-
-
-<div class="cards">
-
-
-<section class="card">
-
-<div class="inner">
-
-
-<div class="cardTitle">
-  PAKSI ATOMERŐMŰ TELJESÍTMÉNYE
-</div>
-
-
-<div class="mainRow">
-
-  <div class="big power">
-    ${totalText}
-  </div>
-
-  <div class="caption">
-    ÖSSZTELJESÍTMÉNY
-  </div>
-
-</div>
-
-
-<div class="chartBox">
-
-
-<div class="chartTop">
-
-  <div class="chartTitle">
-    TELJESÍTMÉNY VÁLTOZÁSA • MW
-  </div>
-
-
-  <div class="periods">
-
-    <button
-      class="periodButton active"
-      data-chart="power"
-      onclick="setRange('power',6,this)"
-    >
-      6 ÓRA
-    </button>
-
-    <button
-      class="periodButton"
-      data-chart="power"
-      onclick="setRange('power',24,this)"
-    >
-      24 ÓRA
-    </button>
-
-    <button
-      class="periodButton"
-      data-chart="power"
-      onclick="setRange('power',240,this)"
-    >
-      10 NAP
-    </button>
-
-  </div>
-
-</div>
-
-
-<div class="chartWrap">
-
-  <canvas id="powerChart"></canvas>
-
-</div>
-
-
-</div>
-
-
-<div class="blocks">
-
-
-<div class="block">
-
-  <div class="blockName">
-    1. BLOKK
-  </div>
-
-  <div class="blockValue">
-    ${blocks[0]} MW
-  </div>
-
-</div>
-
-
-<div class="block">
-
-  <div class="blockName">
-    2. BLOKK
-  </div>
-
-  <div class="blockValue">
-    ${blocks[1]} MW
-  </div>
-
-</div>
-
-
-<div class="block">
-
-  <div class="blockName">
-    3. BLOKK
-  </div>
-
-  <div class="blockValue">
-    ${blocks[2]} MW
-  </div>
-
-</div>
-
-
-<div class="block">
-
-  <div class="blockName">
-    4. BLOKK
-  </div>
-
-  <div class="blockValue">
-    ${blocks[3]} MW
-  </div>
-
-</div>
-
-
-</div>
-
-
-</div>
-
-
-<div class="source">
-
-  OAH
-  •
-  ${shortTime(oahTime)}
-  •
-  ${oahStatus}
-
-</div>
-
-
-</section>
-
-
-<section class="card">
-
-<div class="inner">
-
-
-<div class="cardTitle">
-  🌊 DUNA VÍZÁLLÁSA PAKSNÁL
-</div>
-
-
-<div class="mainRow">
-
-  <div class="big water">
-    ${waterText}
-  </div>
-
-  <div class="status ${riverClass}">
-    ${riverLabel}
-  </div>
-
-</div>
-
-
-<div class="chartBox">
-
-
-<div class="chartTop">
-
-  <div class="chartTitle">
-    VÍZÁLLÁS VÁLTOZÁSA • CM
-  </div>
-
-
-  <div class="periods">
-
-    <button
-      class="periodButton active"
-      data-chart="water"
-      onclick="setRange('water',6,this)"
-    >
-      6 ÓRA
-    </button>
-
-    <button
-      class="periodButton"
-      data-chart="water"
-      onclick="setRange('water',24,this)"
-    >
-      24 ÓRA
-    </button>
-
-    <button
-      class="periodButton"
-      data-chart="water"
-      onclick="setRange('water',240,this)"
-    >
-      10 NAP
-    </button>
-
-  </div>
-
-</div>
-
-
-<div class="chartWrap">
-
-  <canvas id="waterChart"></canvas>
-
-</div>
-
-
-</div>
-
-
-<div class="metrics">
-
-
-<div class="metric">
-
-  <div class="metricName">
-    VÍZHOZAM
-  </div>
-
-  <div class="metricValue">
-    ${fmt1(flow)} m³/s
-  </div>
-
-</div>
-
-
-<div class="metric">
-
-  <div class="metricName">
-    VÍZHŐMÉRSÉKLET
-  </div>
-
-  <div class="metricValue">
-    ${fmt1(temp)} °C
-  </div>
-
-</div>
-
-
-</div>
-
-
-<div class="gauge">
-
-  ${
-    Number.isFinite(water)
-      ? `<div class="marker"></div>`
-      : ""
-  }
-
-</div>
-
-
-<div class="scale">
-
-  <span>
-    NORMÁL
-  </span>
-
-  <span>
-    −134 CM
-  </span>
-
-  <span>
-    −144 CM
-  </span>
-
-</div>
-
-
-<div class="distances">
-
-
-<div class="distance">
-
-  <div class="distanceValue">
-
-    ${
-      shutdownDistance !== null
-        ? Math.abs(shutdownDistance) + " cm"
-        : "—"
-    }
-
-  </div>
-
-  <div class="distanceLabel">
-    LEÁLLÁSI KÜSZÖBIG
-  </div>
-
-</div>
-
-
-<div class="distance">
-
-  <div class="distanceValue">
-
-    ${
-      safetyDistance !== null
-        ? Math.abs(safetyDistance) + " cm"
-        : "—"
-    }
-
-  </div>
-
-  <div class="distanceLabel">
-    BIZTONSÁGI HATÁRIG
-  </div>
-
-</div>
-
-
-</div>
-
-
-</div>
-
-
-<div class="source">
-
-  VÍZÜGY
-  •
-  ${shortTime(riverTime)}
-  •
-  ${riverStatus}
-
-</div>
-
-
-</section>
-
-
-</div>
-
-
-<div class="bottom">
-
-
-<div class="signature">
-  IGLÓDI
-</div>
-
-
-<div class="share">
-
-  <div class="shareTitle">
-    🔗 PARANCSIKON / MEGOSZTÁS
-  </div>
-
-
-  <div class="shareRow">
-
-    <a
-      class="url"
-      href="${PUBLIC_URL}"
-      target="_blank"
-      rel="noopener"
-    >
-      ${PUBLIC_URL}
-    </a>
-
-
-    <button
-      class="copy"
-      onclick="copyLink()"
-    >
-      MÁSOLÁS
-    </button>
-
-  </div>
-
-</div>
-
-
-</div>
-
-
-</div>
-
-
-<div
-  class="toast"
-  id="toast"
->
-  ✓ LINK MÁSOLVA
-</div>
-
-
-</body>
-
-</html>`;
-
-
-    return new Response(
-      html,
-      {
-        status: 200,
-        headers: {
-          "content-type":
-            "text/html;charset=UTF-8",
-
-          "cache-control":
-            "no-store"
-        }
-      }
-    );
-  },
-
-
-  // ========================================================
-  // CRON
-  // ========================================================
-
-  async scheduled(controller, env, ctx) {
-
-    ctx.waitUntil(
-      collectScheduledData(env)
-    );
-  }
-
-};
-
-
-// ============================================================
-// CRON ADATGYŰJTÉS
-// ============================================================
-
-async function collectScheduledData(env) {
-
-  try {
-
-    await ensureDB(env);
-
-
-    const data =
-      await getCurrentData();
-
-
-    await saveMeasurement(
-      env,
-      data
-    );
-
-
-    console.log(
-      "CRON OK",
-      data.total,
-      data.water
-    );
-
-
-  } catch (error) {
-
-    console.log(
-      "CRON ERROR:",
-      error?.message ||
-      String(error)
-    );
-  }
-}
+    hours
