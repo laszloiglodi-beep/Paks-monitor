@@ -1,19 +1,2901 @@
-{
-  "name": "paks-monitor",
-  "main": "worker.js",
-  "compatibility_date": "2026-08-15",
+const OAH_URL =
+  "https://tranem.haea.gov.hu/web/v3/OAHPortal.nsf/web?OpenAgent=&article=paksnpp";
 
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "paks-monitor-db",
-      "database_id": "015ef067-7e38-475a-9c2e-21d658b833f9"
+const VIZ_URL =
+  "https://www.vizugy.hu/?AllomasVOA=16496188-97AB-11D4-BB62-00508BA24287&mapData=OrasIdosor&mapModule=OpGrafikon";
+
+const PUBLIC_URL =
+  "https://paks-monitor.laszlo-iglodi.workers.dev";
+
+const FB_IMAGE_RAW =
+  "https://raw.githubusercontent.com/laszloiglodi-beep/Paks-monitor/main/60CF06BF-2068-420D-AC41-224FB3B75358.png";
+
+const VERSION = "PAKS MONITOR V5";
+
+/*
+  MVM – LEGUTOLSÓ HIVATALOS KÖZZÉTETT ADAT
+
+  2026.08.14.
+  melegvízcsatorna: 34,9 °C
+
+  FONTOS:
+  A 29,5 °C-os beavatkozási határ NEM erre,
+  hanem az 500 m-es referencia-szelvényre vonatkozik.
+*/
+
+const OUTLET_TEMP = 34.9;
+const OUTLET_TEMP_DATE = "08.14";
+
+
+// ============================================================
+// SEGÉDFÜGGVÉNYEK
+// ============================================================
+
+function clean(html) {
+  return String(html || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&#160;/gi, " ")
+    .replace(/&minus;/gi, "-")
+    .replace(/&#8722;/gi, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+
+function fmt1(value) {
+  return typeof value === "number" &&
+    Number.isFinite(value)
+    ? value.toLocaleString(
+        "hu-HU",
+        {
+          minimumFractionDigits: 1,
+          maximumFractionDigits: 1
+        }
+      )
+    : "—";
+}
+
+
+function shortTime(value) {
+  const match =
+    String(value || "").match(
+      /(\d{2}:\d{2})/
+    );
+
+  return match
+    ? match[1]
+    : "—";
+}
+
+
+// ============================================================
+// BUDAPESTI HELYI IDŐ
+// ============================================================
+
+function getBudapestOffset(timestamp) {
+
+  const formatter =
+    new Intl.DateTimeFormat(
+      "en-GB",
+      {
+        timeZone: "Europe/Budapest",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23"
+      }
+    );
+
+  const parts =
+    formatter.formatToParts(
+      new Date(timestamp)
+    );
+
+  const values = {};
+
+  for (const part of parts) {
+
+    if (part.type !== "literal") {
+      values[part.type] =
+        Number(part.value);
     }
-  ],
+  }
 
-  "triggers": {
-    "crons": [
-      "*/5 * * * *"
-    ]
+  const localAsUTC =
+    Date.UTC(
+      values.year,
+      values.month - 1,
+      values.day,
+      values.hour,
+      values.minute,
+      values.second
+    );
+
+  return localAsUTC - timestamp;
+}
+
+
+function parseHuTimestamp(value) {
+
+  const match =
+    String(value || "").match(
+      /(\d{4})\.\s*(\d{2})\.\s*(\d{2})\.?\s*(\d{2}):(\d{2})/
+    );
+
+  if (!match) {
+    return null;
+  }
+
+  const desiredLocalAsUTC =
+    Date.UTC(
+      Number(match[1]),
+      Number(match[2]) - 1,
+      Number(match[3]),
+      Number(match[4]),
+      Number(match[5]),
+      0
+    );
+
+  let timestamp =
+    desiredLocalAsUTC;
+
+  for (let i = 0; i < 2; i++) {
+
+    timestamp =
+      desiredLocalAsUTC -
+      getBudapestOffset(timestamp);
+  }
+
+  return Number.isFinite(timestamp)
+    ? timestamp
+    : null;
+}
+
+
+// ============================================================
+// D1
+// ============================================================
+
+async function ensureDB(env) {
+
+  if (!env || !env.DB) {
+    throw new Error("DB binding missing");
+  }
+
+  await env.DB
+    .prepare(
+      `CREATE TABLE IF NOT EXISTS measurements (
+        ts INTEGER PRIMARY KEY,
+        power INTEGER,
+        water INTEGER,
+        flow REAL,
+        temp REAL
+      )`
+    )
+    .run();
+
+  await env.DB
+    .prepare(
+      `CREATE TABLE IF NOT EXISTS meta (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      )`
+    )
+    .run();
+}
+
+
+// ============================================================
+// DUNA HISTORY RESET
+// ============================================================
+
+async function resetRiverHistory(env) {
+
+  await ensureDB(env);
+
+  await env.DB
+    .prepare(
+      `UPDATE measurements
+       SET
+         water = NULL,
+         flow = NULL,
+         temp = NULL`
+    )
+    .run();
+
+  await env.DB
+    .prepare(
+      `DELETE FROM measurements
+       WHERE power IS NULL
+         AND water IS NULL
+         AND flow IS NULL
+         AND temp IS NULL`
+    )
+    .run();
+}
+
+
+// ============================================================
+// AKTUÁLIS ADATOK
+// ============================================================
+
+async function getCurrentData() {
+
+  let blocks =
+    ["—", "—", "—", "—"];
+
+  let oahTime = "—";
+  let oahTimestamp = null;
+  let oahStatus = "OK";
+
+  let water = null;
+  let flow = null;
+  let temp = null;
+
+  let riverTime = "—";
+  let riverTimestamp = null;
+  let riverStatus = "OK";
+
+
+  // ==========================================================
+  // OAH – PAKSI BLOKKOK
+  // ==========================================================
+
+  try {
+
+    const response =
+      await fetch(
+        OAH_URL,
+        {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (compatible; PaksMonitor/5.0)"
+          }
+        }
+      );
+
+    if (!response.ok) {
+      throw new Error(
+        "OAH HTTP " +
+        response.status
+      );
+    }
+
+    const text =
+      clean(
+        await response.text()
+      );
+
+
+    const date =
+      text.match(
+        /Mérés dátuma:\s*([0-9]{4}\.\s*[0-9]{2}\.\s*[0-9]{2}\.?\s*[0-9]{2}:[0-9]{2})/i
+      );
+
+
+    if (date) {
+
+      oahTime =
+        date[1];
+
+      oahTimestamp =
+        parseHuTimestamp(
+          date[1]
+        );
+    }
+
+
+    const power =
+      text.match(
+        /1\.\s*blokk\s*2\.\s*blokk\s*3\.\s*blokk\s*4\.\s*blokk\s*(\d+)\s*MW\s*(\d+)\s*MW\s*(\d+)\s*MW\s*(\d+)\s*MW/i
+      );
+
+
+    if (power) {
+
+      blocks = [
+        power[1],
+        power[2],
+        power[3],
+        power[4]
+      ];
+
+    } else {
+
+      oahStatus =
+        "ADATHIBA";
+    }
+
+
+    if (
+      !Number.isFinite(
+        oahTimestamp
+      )
+    ) {
+
+      oahStatus =
+        oahStatus === "OK"
+          ? "IDŐHIBA"
+          : oahStatus;
+    }
+
+
+  } catch (error) {
+
+    oahStatus =
+      "KAPCSOLATI HIBA";
+
+    console.log(
+      "OAH ERROR:",
+      error?.message ||
+      String(error)
+    );
+  }
+
+
+  // ==========================================================
+  // VÍZÜGY
+  // ==========================================================
+
+  try {
+
+    const response =
+      await fetch(
+        VIZ_URL,
+        {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (compatible; PaksMonitor/5.0)"
+          }
+        }
+      );
+
+
+    if (!response.ok) {
+
+      throw new Error(
+        "VIZ HTTP " +
+        response.status
+      );
+    }
+
+
+    const text =
+      clean(
+        await response.text()
+      );
+
+
+    const rowRegex =
+      /(20\d{2}\.\s*\d{2}\.\s*\d{2}\.?\s*\d{2}:\d{2})\s+(-?\d+)\s+(-|\d+(?:[.,]\d+)?)\s+(-|\d+(?:[.,]\d+)?)\s+(-|\d+(?:[.,]\d+)?)/g;
+
+
+    let latestRow = null;
+    let match;
+
+
+    while (
+      (match =
+        rowRegex.exec(text)) !== null
+    ) {
+
+      const timestamp =
+        parseHuTimestamp(
+          match[1]
+        );
+
+
+      if (
+        !Number.isFinite(timestamp)
+      ) {
+        continue;
+      }
+
+
+      if (
+        !latestRow ||
+        timestamp >
+        latestRow.timestamp
+      ) {
+
+        latestRow = {
+          timestamp,
+          time: match[1],
+          water: match[2],
+          flow: match[3],
+          temp1: match[4],
+          temp2: match[5]
+        };
+      }
+    }
+
+
+    if (!latestRow) {
+
+      riverStatus =
+        "ADATHIBA";
+
+    } else {
+
+      riverTime =
+        latestRow.time;
+
+      riverTimestamp =
+        latestRow.timestamp;
+
+
+      const w =
+        Number(
+          latestRow.water
+        );
+
+
+      if (
+        Number.isFinite(w) &&
+        w > -1000 &&
+        w < 1000
+      ) {
+
+        water = w;
+      }
+
+
+      if (
+        latestRow.flow !== "-"
+      ) {
+
+        const f =
+          Number(
+            latestRow.flow.replace(
+              ",",
+              "."
+            )
+          );
+
+
+        if (
+          Number.isFinite(f) &&
+          f >= 0 &&
+          f <= 20000
+        ) {
+
+          flow = f;
+        }
+      }
+
+
+      const candidates = [
+        latestRow.temp1,
+        latestRow.temp2
+      ];
+
+
+      for (
+        const raw of candidates
+      ) {
+
+        if (
+          !raw ||
+          raw === "-"
+        ) {
+          continue;
+        }
+
+
+        const t =
+          Number(
+            raw.replace(
+              ",",
+              "."
+            )
+          );
+
+
+        if (
+          Number.isFinite(t) &&
+          t >= 0 &&
+          t <= 40
+        ) {
+
+          temp = t;
+          break;
+        }
+      }
+
+
+      if (
+        !Number.isFinite(water)
+      ) {
+
+        riverStatus =
+          "ADATHIBA";
+      }
+    }
+
+
+  } catch (error) {
+
+    riverStatus =
+      "KAPCSOLATI HIBA";
+
+    console.log(
+      "VIZ ERROR:",
+      error?.message ||
+      String(error)
+    );
+  }
+
+
+  const validBlocks =
+    blocks.every(
+      value =>
+        /^\d+$/.test(
+          String(value)
+        )
+    );
+
+
+  const total =
+    validBlocks
+      ? blocks.reduce(
+          (sum, value) =>
+            sum + Number(value),
+          0
+        )
+      : null;
+
+
+  return {
+
+    blocks,
+    total,
+
+    water,
+    flow,
+    temp,
+
+    oahTime,
+    oahTimestamp,
+
+    riverTime,
+    riverTimestamp,
+
+    oahStatus,
+    riverStatus
+  };
+}
+
+
+// ============================================================
+// D1 MENTÉS
+// ============================================================
+
+async function saveMeasurement(
+  env,
+  data
+) {
+
+  try {
+
+    await ensureDB(env);
+
+
+    // OAH saját időpont
+
+    if (
+      Number.isFinite(
+        data.total
+      ) &&
+      Number.isFinite(
+        data.oahTimestamp
+      )
+    ) {
+
+      await env.DB
+        .prepare(
+          `INSERT INTO measurements
+           (ts, power, water, flow, temp)
+
+           VALUES (?, ?, NULL, NULL, NULL)
+
+           ON CONFLICT(ts)
+           DO UPDATE SET
+             power = excluded.power`
+        )
+        .bind(
+          data.oahTimestamp,
+          data.total
+        )
+        .run();
+    }
+
+
+    // VÍZÜGY saját időpont
+
+    if (
+      Number.isFinite(
+        data.water
+      ) &&
+      Number.isFinite(
+        data.riverTimestamp
+      )
+    ) {
+
+      await env.DB
+        .prepare(
+          `INSERT INTO measurements
+           (ts, power, water, flow, temp)
+
+           VALUES (?, NULL, ?, ?, ?)
+
+           ON CONFLICT(ts)
+           DO UPDATE SET
+             water = excluded.water,
+             flow = excluded.flow,
+             temp = excluded.temp`
+        )
+        .bind(
+          data.riverTimestamp,
+
+          data.water,
+
+          Number.isFinite(
+            data.flow
+          )
+            ? data.flow
+            : null,
+
+          Number.isFinite(
+            data.temp
+          )
+            ? data.temp
+            : null
+        )
+        .run();
+    }
+
+
+    const cutoff =
+      Date.now() -
+      11 *
+      24 *
+      60 *
+      60 *
+      1000;
+
+
+    await env.DB
+      .prepare(
+        "DELETE FROM measurements WHERE ts < ?"
+      )
+      .bind(cutoff)
+      .run();
+
+
+  } catch (error) {
+
+    console.log(
+      "D1 SAVE ERROR:",
+      error?.message ||
+      String(error)
+    );
   }
 }
+
+
+// ============================================================
+// WORKER
+// ============================================================
+
+export default {
+
+
+  async scheduled(
+    controller,
+    env,
+    ctx
+  ) {
+
+    const data =
+      await getCurrentData();
+
+
+    ctx.waitUntil(
+      saveMeasurement(
+        env,
+        data
+      )
+    );
+  },
+
+
+  async fetch(
+    request,
+    env,
+    ctx
+  ) {
+
+    const url =
+      new URL(
+        request.url
+      );
+
+
+    // ========================================================
+    // VERSION
+    // ========================================================
+
+    if (
+      url.pathname ===
+      "/version"
+    ) {
+
+      return new Response(
+        VERSION,
+        {
+          headers: {
+            "content-type":
+              "text/plain;charset=UTF-8",
+
+            "cache-control":
+              "no-store"
+          }
+        }
+      );
+    }
+
+
+    // ========================================================
+    // RESET
+    // ========================================================
+
+    if (
+      url.pathname ===
+      "/reset-river-history"
+    ) {
+
+      try {
+
+        await resetRiverHistory(
+          env
+        );
+
+
+        return new Response(
+`<!doctype html>
+<html lang="hu">
+
+<head>
+
+<meta charset="utf-8">
+
+<meta
+  name="viewport"
+  content="width=device-width,initial-scale=1"
+>
+
+<style>
+
+body{
+  margin:0;
+  background:#030812;
+  color:white;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+  min-height:100vh;
+  display:grid;
+  place-items:center;
+}
+
+.box{
+  width:min(90%,500px);
+  padding:30px;
+  text-align:center;
+  background:#07111d;
+  border:1px solid #1b3b57;
+  border-radius:20px;
+}
+
+.ok{
+  color:#66df57;
+  font-size:26px;
+  font-weight:900;
+}
+
+.small{
+  margin-top:12px;
+  color:#8f9daf;
+}
+
+a{
+  display:inline-block;
+  margin-top:24px;
+  color:#49a9ff;
+  font-weight:900;
+  text-decoration:none;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div class="box">
+
+  <div class="ok">
+    DUNA HISTORY CLEARED ✓
+  </div>
+
+  <div class="small">
+    A régi vízállás-előzmény törölve.
+  </div>
+
+  <div class="small">
+    ${VERSION}
+  </div>
+
+  <a href="/">
+    VISSZA A MONITORHOZ
+  </a>
+
+</div>
+
+</body>
+
+</html>`,
+          {
+            headers: {
+              "content-type":
+                "text/html;charset=UTF-8",
+
+              "cache-control":
+                "no-store"
+            }
+          }
+        );
+
+
+      } catch (error) {
+
+        return new Response(
+          "RESET ERROR: " +
+          (
+            error?.message ||
+            String(error)
+          ),
+          {
+            status: 500
+          }
+        );
+      }
+    }
+
+
+    // ========================================================
+    // FACEBOOK IMAGE
+    // ========================================================
+
+    if (
+      url.pathname ===
+      "/facebook-image"
+    ) {
+
+      try {
+
+        const response =
+          await fetch(
+            FB_IMAGE_RAW
+          );
+
+
+        if (!response.ok) {
+
+          return new Response(
+            "Image not found",
+            {
+              status: 404
+            }
+          );
+        }
+
+
+        return new Response(
+          response.body,
+          {
+            headers: {
+
+              "content-type":
+                "image/png",
+
+              "cache-control":
+                "public, max-age=86400"
+            }
+          }
+        );
+
+
+      } catch {
+
+        return new Response(
+          "Image unavailable",
+          {
+            status: 503
+          }
+        );
+      }
+    }
+
+
+    // ========================================================
+    // HISTORY API
+    // ========================================================
+
+    if (
+      url.pathname ===
+      "/api/history"
+    ) {
+
+      try {
+
+        await ensureDB(env);
+
+
+        let hours =
+          Number(
+            url.searchParams.get(
+              "hours"
+            ) || 6
+          );
+
+
+        if (
+          ![
+            6,
+            24,
+            240
+          ].includes(hours)
+        ) {
+
+          hours = 6;
+        }
+
+
+        const cutoff =
+          Date.now() -
+          hours *
+          60 *
+          60 *
+          1000;
+
+
+        const result =
+          await env.DB
+            .prepare(
+              `SELECT
+                 ts,
+                 power,
+                 water,
+                 flow,
+                 temp
+               FROM measurements
+               WHERE ts >= ?
+               ORDER BY ts ASC`
+            )
+            .bind(cutoff)
+            .all();
+
+
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            version: VERSION,
+
+            data:
+              result.results ||
+              []
+          }),
+          {
+            headers: {
+
+              "content-type":
+                "application/json;charset=UTF-8",
+
+              "cache-control":
+                "no-store"
+            }
+          }
+        );
+
+
+      } catch (error) {
+
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            version: VERSION,
+            data: [],
+            error:
+              error?.message ||
+              String(error)
+          }),
+          {
+            headers: {
+              "content-type":
+                "application/json;charset=UTF-8"
+            }
+          }
+        );
+      }
+    }
+
+
+    // ========================================================
+    // FŐOLDAL
+    // ========================================================
+
+    const data =
+      await getCurrentData();
+
+
+    if (
+      ctx &&
+      typeof ctx.waitUntil ===
+        "function"
+    ) {
+
+      ctx.waitUntil(
+        saveMeasurement(
+          env,
+          data
+        )
+      );
+    }
+
+
+    const {
+      blocks,
+      total,
+      water,
+      flow,
+      temp,
+      oahTime,
+      riverTime,
+      oahStatus,
+      riverStatus
+    } = data;
+
+
+    const totalText =
+      Number.isFinite(total)
+        ? `${total} MW`
+        : "— MW";
+
+
+    const waterText =
+      Number.isFinite(water)
+        ? `${water} cm`
+        : "— cm";
+
+
+    const flowText =
+      Number.isFinite(flow)
+        ? `${fmt1(flow)} m³/s`
+        : "— m³/s";
+
+
+    const tempText =
+      Number.isFinite(temp)
+        ? `${fmt1(temp)} °C`
+        : "— °C";
+
+
+    const outletTempText =
+      Number.isFinite(
+        OUTLET_TEMP
+      )
+        ? `${fmt1(OUTLET_TEMP)} °C`
+        : "— °C";
+
+
+    const shutdownDistance =
+      Number.isFinite(water)
+        ? water + 134
+        : null;
+
+
+    const safetyDistance =
+      Number.isFinite(water)
+        ? water + 144
+        : null;
+
+
+    let riverClass =
+      "normal";
+
+    let riverLabel =
+      "NORMÁL TARTOMÁNY";
+
+
+    if (
+      Number.isFinite(water)
+    ) {
+
+      if (
+        water <= -144
+      ) {
+
+        riverClass =
+          "danger";
+
+        riverLabel =
+          "KRITIKUS VÍZSZINT";
+
+      } else if (
+        water <= -134
+      ) {
+
+        riverClass =
+          "warning";
+
+        riverLabel =
+          "LEÁLLÁSI TARTOMÁNY";
+
+      } else if (
+        water <= -129
+      ) {
+
+        riverClass =
+          "warning";
+
+        riverLabel =
+          "FIGYELMEZTETÉS";
+      }
+    }
+
+
+    let markerPct = 0;
+
+
+    if (
+      Number.isFinite(water)
+    ) {
+
+      markerPct =
+        ((-110 - water) / 40) *
+        100;
+
+
+      markerPct =
+        Math.max(
+          0,
+          Math.min(
+            100,
+            markerPct
+          )
+        );
+    }
+
+
+    const html =
+`<!doctype html>
+
+<html lang="hu">
+
+<head>
+
+<meta charset="utf-8">
+
+<meta
+  name="viewport"
+  content="width=device-width,initial-scale=1,viewport-fit=cover"
+>
+
+<meta
+  name="theme-color"
+  content="#030812"
+>
+
+<meta
+  name="apple-mobile-web-app-capable"
+  content="yes"
+>
+
+<title>⚛️ PAKS AKTUÁLIS ADATOK</title>
+
+<meta
+  property="og:title"
+  content="⚛️ PAKS AKTUÁLIS ADATOK"
+>
+
+<meta
+  property="og:description"
+  content="Paksi Atomerőmű • Duna • vízállás • vízhő • élő adatok"
+>
+
+<meta
+  property="og:image"
+  content="${PUBLIC_URL}/facebook-image"
+>
+
+
+<style>
+
+:root{
+  --bg:#030812;
+  --panel:#07111d;
+  --panel2:#0c1825;
+  --border:#1b3b57;
+  --white:#f6f8fb;
+  --muted:#8f9daf;
+  --green:#66df57;
+  --blue:#49a9ff;
+  --orange:#ffad30;
+  --red:#ff5c61;
+  --purple:#bf4cff;
+}
+
+*{
+  box-sizing:border-box;
+}
+
+html,
+body{
+  margin:0;
+  width:100%;
+  min-height:100%;
+  background:
+    radial-gradient(
+      circle at 50% -10%,
+      #0d2037 0%,
+      #040b14 35%,
+      #02060b 75%
+    );
+  color:var(--white);
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Arial,
+    sans-serif;
+}
+
+.app{
+  width:min(100%,520px);
+  margin:auto;
+  padding:
+    max(8px,env(safe-area-inset-top))
+    9px
+    max(7px,env(safe-area-inset-bottom));
+}
+
+.header{
+  display:grid;
+  grid-template-columns:auto 1fr auto;
+  align-items:center;
+  gap:8px;
+  margin-bottom:7px;
+}
+
+.logo{
+  width:40px;
+  height:40px;
+  border-radius:12px;
+  display:grid;
+  place-items:center;
+  font-size:24px;
+  background:
+    linear-gradient(
+      145deg,
+      #bd53ff,
+      #55117d
+    );
+}
+
+.title{
+  font-size:20px;
+  line-height:.98;
+  font-weight:950;
+}
+
+.live{
+  display:flex;
+  align-items:center;
+  gap:5px;
+  padding:5px 8px;
+  border-radius:999px;
+  background:#0c2111;
+  border:1px solid #275a31;
+  color:#73e66a;
+  font-size:9px;
+  font-weight:900;
+}
+
+.liveDot{
+  width:7px;
+  height:7px;
+  border-radius:50%;
+  background:#73e66a;
+  box-shadow:0 0 8px #73e66a;
+}
+
+.card{
+  background:
+    linear-gradient(
+      145deg,
+      #09131f,
+      #06101a
+    );
+  border:1px solid var(--border);
+  border-radius:17px;
+  overflow:hidden;
+  margin-bottom:7px;
+}
+
+.inner{
+  padding:10px;
+}
+
+.cardTitle{
+  color:#a5b1bf;
+  font-size:10px;
+  letter-spacing:.55px;
+  font-weight:850;
+}
+
+.mainRow{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:10px;
+  margin:4px 0 7px;
+}
+
+.big{
+  font-size:40px;
+  line-height:.95;
+  letter-spacing:-1.5px;
+  font-weight:950;
+}
+
+.power{
+  color:var(--green);
+}
+
+.water{
+  color:var(--blue);
+}
+
+.caption{
+  padding-bottom:3px;
+  color:#78879a;
+  font-size:8px;
+}
+
+.status{
+  padding-bottom:3px;
+  font-size:9px;
+  font-weight:900;
+}
+
+.normal{
+  color:var(--green);
+}
+
+.warning{
+  color:var(--orange);
+}
+
+.danger{
+  color:var(--red);
+}
+
+.chartBox{
+  margin-bottom:7px;
+  padding:7px 7px 4px;
+  background:#050e18;
+  border:1px solid #132b40;
+  border-radius:11px;
+}
+
+.chartTop{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:6px;
+  margin-bottom:4px;
+}
+
+.chartTitle{
+  color:#8f9eb1;
+  font-size:7px;
+  font-weight:800;
+}
+
+.periods{
+  display:flex;
+  gap:3px;
+}
+
+.periodButton{
+  border:0;
+  padding:3px 6px;
+  border-radius:999px;
+  background:#111e2b;
+  color:#8394a8;
+  font-size:7px;
+  font-weight:850;
+}
+
+.periodButton.active{
+  color:white;
+  background:#234663;
+}
+
+.chartWrap{
+  width:100%;
+  height:92px;
+}
+
+canvas{
+  display:block;
+  width:100%;
+  height:100%;
+}
+
+.blocks{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:5px;
+}
+
+.block{
+  padding:6px 8px;
+  background:var(--panel2);
+  border-radius:9px;
+  border:1px solid #142b3f;
+}
+
+.blockName{
+  color:#8c9bad;
+  font-size:7px;
+}
+
+.blockValue{
+  margin-top:2px;
+  font-size:17px;
+  font-weight:900;
+}
+
+.metrics{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:5px;
+}
+
+.metric{
+  padding:6px 8px;
+  border-radius:9px;
+  background:var(--panel2);
+}
+
+.metricName{
+  color:#8c9bad;
+  font-size:7px;
+}
+
+.metricValue{
+  margin-top:2px;
+  font-size:16px;
+  font-weight:900;
+}
+
+.outlet{
+  margin-top:5px;
+  display:grid;
+  grid-template-columns:1fr auto;
+  align-items:center;
+  gap:8px;
+  padding:7px 9px;
+  border-radius:10px;
+  border:1px solid #67491d;
+  background:#171209;
+}
+
+.outletName{
+  color:#c5a76f;
+  font-size:7px;
+  font-weight:800;
+}
+
+.outletValue{
+  color:var(--orange);
+  font-size:19px;
+  font-weight:950;
+}
+
+.outletDate{
+  color:#887b66;
+  font-size:6px;
+  margin-top:2px;
+}
+
+.heatRule{
+  margin-top:5px;
+  padding:6px 8px;
+  border-radius:9px;
+  background:#15110a;
+  border:1px solid #4e3918;
+  color:#ffbd51;
+  font-size:7px;
+  text-align:center;
+  font-weight:800;
+}
+
+.gauge{
+  position:relative;
+  height:9px;
+  border-radius:999px;
+  margin-top:7px;
+  background:
+    linear-gradient(
+      90deg,
+      #52c85a 0%,
+      #52c85a 60%,
+      #ffad30 60%,
+      #ffad30 85%,
+      #ef555b 85%,
+      #ef555b 100%
+    );
+}
+
+.marker{
+  position:absolute;
+  left:${markerPct}%;
+  top:-5px;
+  width:3px;
+  height:19px;
+  border-radius:2px;
+  background:#fff;
+  transform:translateX(-50%);
+  box-shadow:0 0 6px #fff;
+}
+
+.scale{
+  display:grid;
+  grid-template-columns:1fr 1fr 1fr;
+  margin-top:3px;
+  font-size:7px;
+}
+
+.scale span:nth-child(2){
+  text-align:center;
+  color:var(--orange);
+}
+
+.scale span:nth-child(3){
+  text-align:right;
+  color:var(--red);
+}
+
+.distances{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:5px;
+  margin-top:5px;
+}
+
+.distance{
+  padding:5px 7px;
+  border-radius:9px;
+  background:var(--panel2);
+}
+
+.distanceValue{
+  font-size:13px;
+  font-weight:950;
+}
+
+.distanceLabel{
+  color:#78889b;
+  font-size:6px;
+}
+
+.source{
+  padding:5px 10px;
+  border-top:1px solid #172e42;
+  color:#718296;
+  font-size:7px;
+}
+
+.bottom{
+  display:grid;
+  grid-template-columns:.55fr 1.55fr;
+  gap:5px;
+}
+
+.signature{
+  display:grid;
+  place-items:center;
+  min-height:43px;
+  border:1px solid #3e2255;
+  border-radius:11px;
+  background:#100817;
+  color:var(--purple);
+  font-size:12px;
+  font-weight:950;
+  letter-spacing:2px;
+}
+
+.share{
+  border:1px solid #17334a;
+  border-radius:11px;
+  background:#07111c;
+  padding:5px;
+}
+
+.shareTitle{
+  color:#8494a7;
+  font-size:7px;
+  margin-bottom:3px;
+}
+
+.shareRow{
+  display:grid;
+  grid-template-columns:1fr 57px;
+  gap:4px;
+}
+
+.url{
+  min-width:0;
+  height:25px;
+  display:flex;
+  align-items:center;
+  padding:0 6px;
+  border:1px solid #9e38cf;
+  border-radius:7px;
+  background:#180b20;
+  color:#d353ff;
+  font-size:6.5px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  text-decoration:none;
+}
+
+.copy{
+  height:25px;
+  border:0;
+  border-radius:7px;
+  background:#142130;
+  color:white;
+  font-size:7px;
+  font-weight:900;
+}
+
+.version{
+  margin-top:5px;
+  text-align:center;
+  color:#405268;
+  font-size:6px;
+  letter-spacing:1px;
+}
+
+@media(min-width:800px){
+
+  .app{
+    width:min(1200px,96vw);
+  }
+
+  .cards{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:12px;
+  }
+
+  .chartWrap{
+    height:180px;
+  }
+
+  .big{
+    font-size:70px;
+  }
+}
+
+</style>
+
+</head>
+
+
+<body>
+
+<div class="app">
+
+
+  <div class="header">
+
+    <div class="logo">
+      ⚛️
+    </div>
+
+    <div class="title">
+      PAKS AKTUÁLIS ADATOK
+    </div>
+
+    <div class="live">
+      <span class="liveDot"></span>
+      ÉLŐ
+    </div>
+
+  </div>
+
+
+  <div class="cards">
+
+
+    <!-- PAKS -->
+
+    <div class="card">
+
+      <div class="inner">
+
+        <div class="cardTitle">
+          PAKSI ATOMERŐMŰ TELJESÍTMÉNYE
+        </div>
+
+
+        <div class="mainRow">
+
+          <div class="big power">
+            ${totalText}
+          </div>
+
+          <div class="caption">
+            ÖSSZTELJESÍTMÉNY
+          </div>
+
+        </div>
+
+
+        <div class="chartBox">
+
+          <div class="chartTop">
+
+            <div class="chartTitle">
+              TELJESÍTMÉNY VÁLTOZÁSA • MW
+            </div>
+
+            <div class="periods">
+
+              <button
+                class="periodButton active"
+                data-chart="power"
+                data-hours="6"
+              >
+                6 ÓRA
+              </button>
+
+              <button
+                class="periodButton"
+                data-chart="power"
+                data-hours="24"
+              >
+                24 ÓRA
+              </button>
+
+              <button
+                class="periodButton"
+                data-chart="power"
+                data-hours="240"
+              >
+                10 NAP
+              </button>
+
+            </div>
+
+          </div>
+
+          <div class="chartWrap">
+            <canvas id="powerChart"></canvas>
+          </div>
+
+        </div>
+
+
+        <div class="blocks">
+
+          ${blocks.map(
+            (value,index) => `
+              <div class="block">
+
+                <div class="blockName">
+                  ${index + 1}. BLOKK
+                </div>
+
+                <div class="blockValue">
+                  ${
+                    value === "—"
+                      ? "—"
+                      : value + " MW"
+                  }
+                </div>
+
+              </div>
+            `
+          ).join("")}
+
+        </div>
+
+      </div>
+
+
+      <div class="source">
+        OAH •
+        ${shortTime(oahTime)} •
+        ${oahStatus}
+      </div>
+
+    </div>
+
+
+    <!-- DUNA -->
+
+    <div class="card">
+
+      <div class="inner">
+
+        <div class="cardTitle">
+          🌊 DUNA VÍZÁLLÁSA PAKSNÁL
+        </div>
+
+
+        <div class="mainRow">
+
+          <div class="big water">
+            ${waterText}
+          </div>
+
+          <div class="status ${riverClass}">
+            ${riverLabel}
+          </div>
+
+        </div>
+
+
+        <div class="chartBox">
+
+          <div class="chartTop">
+
+            <div class="chartTitle">
+              VÍZÁLLÁS VÁLTOZÁSA • CM
+            </div>
+
+            <div class="periods">
+
+              <button
+                class="periodButton active"
+                data-chart="water"
+                data-hours="6"
+              >
+                6 ÓRA
+              </button>
+
+              <button
+                class="periodButton"
+                data-chart="water"
+                data-hours="24"
+              >
+                24 ÓRA
+              </button>
+
+              <button
+                class="periodButton"
+                data-chart="water"
+                data-hours="240"
+              >
+                10 NAP
+              </button>
+
+            </div>
+
+          </div>
+
+
+          <div class="chartWrap">
+            <canvas id="waterChart"></canvas>
+          </div>
+
+        </div>
+
+
+        <div class="metrics">
+
+          <div class="metric">
+
+            <div class="metricName">
+              VÍZHOZAM
+            </div>
+
+            <div class="metricValue">
+              ${flowText}
+            </div>
+
+          </div>
+
+
+          <div class="metric">
+
+            <div class="metricName">
+              DUNA VÍZHŐ
+            </div>
+
+            <div class="metricValue">
+              ${tempText}
+            </div>
+
+          </div>
+
+        </div>
+
+
+        <!-- ÚJ: KILÉPŐ VÍZ -->
+
+        <div class="outlet">
+
+          <div>
+
+            <div class="outletName">
+              KILÉPŐ VÍZ HŐ
+            </div>
+
+            <div class="outletDate">
+              MVM • ${OUTLET_TEMP_DATE}-I HIVATALOS MÉRÉS
+            </div>
+
+          </div>
+
+          <div class="outletValue">
+            ${outletTempText}
+          </div>
+
+        </div>
+
+
+        <div class="heatRule">
+          29,5 °C → BEAVATKOZÁS •
+          +0,1 °C → −80 MW
+        </div>
+
+
+        <div class="gauge">
+
+          <div
+            class="marker"
+            style="left:${markerPct}%"
+          ></div>
+
+        </div>
+
+
+        <div class="scale">
+
+          <span>
+            NORMÁL
+          </span>
+
+          <span>
+            −134 CM
+          </span>
+
+          <span>
+            −144 CM
+          </span>
+
+        </div>
+
+
+        <div class="distances">
+
+          <div class="distance">
+
+            <div class="distanceValue">
+              ${
+                Number.isFinite(
+                  shutdownDistance
+                )
+                  ? shutdownDistance +
+                    " cm"
+                  : "—"
+              }
+            </div>
+
+            <div class="distanceLabel">
+              LEÁLLÁSI KÜSZÖBIG
+            </div>
+
+          </div>
+
+
+          <div class="distance">
+
+            <div class="distanceValue">
+              ${
+                Number.isFinite(
+                  safetyDistance
+                )
+                  ? safetyDistance +
+                    " cm"
+                  : "—"
+              }
+            </div>
+
+            <div class="distanceLabel">
+              BIZTONSÁGI HATÁRIG
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+
+
+      <div class="source">
+        VÍZÜGY •
+        ${shortTime(riverTime)} •
+        ${riverStatus}
+        &nbsp; • &nbsp;
+        KILÉPŐ VÍZ: MVM
+      </div>
+
+    </div>
+
+  </div>
+
+
+  <div class="bottom">
+
+    <div class="signature">
+      IGLÓDI
+    </div>
+
+
+    <div class="share">
+
+      <div class="shareTitle">
+        🔗 PARANCSIKON / MEGOSZTÁS
+      </div>
+
+      <div class="shareRow">
+
+        <a
+          class="url"
+          href="${PUBLIC_URL}"
+        >
+          ${PUBLIC_URL}
+        </a>
+
+        <button
+          class="copy"
+          id="copyButton"
+        >
+          MÁSOLÁS
+        </button>
+
+      </div>
+
+    </div>
+
+  </div>
+
+
+  <div class="version">
+    ${VERSION}
+  </div>
+
+</div>
+
+
+<script>
+
+const PUBLIC_URL =
+  "${PUBLIC_URL}";
+
+
+let selectedRange = {
+  power:6,
+  water:6
+};
+
+
+let cache = {};
+
+
+// ============================================================
+// HISTORY
+// ============================================================
+
+async function getHistory(hours){
+
+  try{
+
+    const response =
+      await fetch(
+        "/api/history?hours=" +
+        hours +
+        "&v=" +
+        Date.now(),
+        {
+          cache:"no-store"
+        }
+      );
+
+
+    const json =
+      await response.json();
+
+
+    if(
+      json &&
+      json.ok === true &&
+      Array.isArray(json.data)
+    ){
+
+      return json.data;
+    }
+
+  }catch(error){}
+
+
+  return [];
+}
+
+
+async function loadHistory(hours){
+
+  if(cache[hours]){
+    return cache[hours];
+  }
+
+
+  const data =
+    await getHistory(hours);
+
+
+  cache[hours] =
+    data;
+
+
+  return data;
+}
+
+
+// ============================================================
+// GRAFIKON
+// ============================================================
+
+async function drawChart(
+  canvasId,
+  field,
+  hours,
+  unit
+){
+
+  const canvas =
+    document.getElementById(
+      canvasId
+    );
+
+
+  if(!canvas){
+    return;
+  }
+
+
+  const rows =
+    await loadHistory(hours);
+
+
+  const data =
+    rows
+      .filter(
+        row =>
+          row[field] !== null &&
+          row[field] !== undefined
+      )
+      .map(
+        row => ({
+          x:Number(row.ts),
+          y:Number(row[field])
+        })
+      )
+      .filter(
+        point =>
+          Number.isFinite(point.x) &&
+          Number.isFinite(point.y)
+      )
+      .sort(
+        (a,b) =>
+          a.x - b.x
+      );
+
+
+  const rect =
+    canvas.getBoundingClientRect();
+
+
+  const ratio =
+    window.devicePixelRatio || 1;
+
+
+  canvas.width =
+    Math.max(
+      1,
+      Math.floor(
+        rect.width *
+        ratio
+      )
+    );
+
+
+  canvas.height =
+    Math.max(
+      1,
+      Math.floor(
+        rect.height *
+        ratio
+      )
+    );
+
+
+  const ctx =
+    canvas.getContext(
+      "2d"
+    );
+
+
+  ctx.setTransform(
+    ratio,
+    0,
+    0,
+    ratio,
+    0,
+    0
+  );
+
+
+  const W =
+    rect.width;
+
+  const H =
+    rect.height;
+
+
+  ctx.clearRect(
+    0,
+    0,
+    W,
+    H
+  );
+
+
+  const pad = {
+    left:38,
+    right:8,
+    top:8,
+    bottom:20
+  };
+
+
+  const chartW =
+    W -
+    pad.left -
+    pad.right;
+
+
+  const chartH =
+    H -
+    pad.top -
+    pad.bottom;
+
+
+  ctx.strokeStyle =
+    "rgba(115,145,170,.18)";
+
+  ctx.lineWidth = 1;
+
+
+  for(let i=0;i<=4;i++){
+
+    const y =
+      pad.top +
+      chartH *
+      i / 4;
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+      pad.left,
+      y
+    );
+
+    ctx.lineTo(
+      W -
+      pad.right,
+      y
+    );
+
+    ctx.stroke();
+  }
+
+
+  if(data.length === 0){
+
+    ctx.fillStyle =
+      "#718397";
+
+    ctx.font =
+      "10px -apple-system";
+
+    ctx.fillText(
+      "Új valódi mérésre várunk…",
+      pad.left + 8,
+      H / 2
+    );
+
+    return;
+  }
+
+
+  let minY =
+    Math.min(
+      ...data.map(
+        p => p.y
+      )
+    );
+
+
+  let maxY =
+    Math.max(
+      ...data.map(
+        p => p.y
+      )
+    );
+
+
+  if(minY === maxY){
+
+    const delta =
+      field === "water"
+        ? 2
+        : Math.max(
+            1,
+            Math.abs(minY) *
+            .02
+          );
+
+
+    minY -= delta;
+    maxY += delta;
+  }
+
+
+  const margin =
+    Math.max(
+      1,
+      (maxY - minY) *
+      .15
+    );
+
+
+  minY -= margin;
+  maxY += margin;
+
+
+  const maxX =
+    Date.now();
+
+
+  const minX =
+    maxX -
+    hours *
+    60 *
+    60 *
+    1000;
+
+
+  const sx = x =>
+    pad.left +
+    (
+      (x - minX) /
+      (maxX - minX)
+    ) *
+    chartW;
+
+
+  const sy = y =>
+    pad.top +
+    (
+      (maxY - y) /
+      (maxY - minY)
+    ) *
+    chartH;
+
+
+  ctx.fillStyle =
+    "#708296";
+
+  ctx.font =
+    "8px -apple-system";
+
+  ctx.textAlign =
+    "right";
+
+
+  for(let i=0;i<=2;i++){
+
+    const value =
+      maxY -
+      (
+        maxY - minY
+      ) *
+      i / 2;
+
+
+    const y =
+      pad.top +
+      chartH *
+      i / 2;
+
+
+    ctx.fillText(
+      Math.round(value) +
+      " " +
+      unit,
+      pad.left - 4,
+      y + 3
+    );
+  }
+
+
+  ctx.textAlign =
+    "center";
+
+
+  const divisions =
+    hours >= 240
+      ? 4
+      : 3;
+
+
+  for(let i=0;i<=divisions;i++){
+
+    const t =
+      minX +
+      (
+        maxX - minX
+      ) *
+      i /
+      divisions;
+
+
+    const d =
+      new Date(t);
+
+
+    const label =
+      hours >= 240
+        ? d.toLocaleDateString(
+            "hu-HU",
+            {
+              month:"2-digit",
+              day:"2-digit"
+            }
+          )
+        : d.toLocaleTimeString(
+            "hu-HU",
+            {
+              hour:"2-digit",
+              minute:"2-digit"
+            }
+          );
+
+
+    ctx.fillText(
+      label,
+      sx(t),
+      H - 5
+    );
+  }
+
+
+  const lineColor =
+    field === "power"
+      ? "#66df57"
+      : "#49a9ff";
+
+
+  ctx.strokeStyle =
+    lineColor;
+
+  ctx.fillStyle =
+    lineColor;
+
+  ctx.lineWidth =
+    2.2;
+
+
+  if(data.length === 1){
+
+    const p =
+      data[0];
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+      Math.max(
+        pad.left,
+        sx(p.x)
+      ),
+      sy(p.y)
+    );
+
+    ctx.lineTo(
+      sx(maxX),
+      sy(p.y)
+    );
+
+    ctx.stroke();
+
+
+    ctx.beginPath();
+
+    ctx.arc(
+      sx(maxX),
+      sy(p.y),
+      3.5,
+      0,
+      Math.PI * 2
+    );
+
+    ctx.fill();
+
+    return;
+  }
+
+
+  ctx.beginPath();
+
+
+  // ==========================================================
+  // DUNA = LÉPCSŐS, NINCS FŰRÉSZ
+  // ==========================================================
+
+  if(field === "water"){
+
+    const first =
+      data[0];
+
+
+    ctx.moveTo(
+      Math.max(
+        pad.left,
+        sx(first.x)
+      ),
+      sy(first.y)
+    );
+
+
+    for(
+      let i=1;
+      i<data.length;
+      i++
+    ){
+
+      const previous =
+        data[i - 1];
+
+      const current =
+        data[i];
+
+
+      const currentX =
+        sx(current.x);
+
+
+      if(
+        currentX <
+        pad.left
+      ){
+        continue;
+      }
+
+
+      if(
+        currentX >
+        W -
+        pad.right
+      ){
+        break;
+      }
+
+
+      ctx.lineTo(
+        currentX,
+        sy(previous.y)
+      );
+
+
+      ctx.lineTo(
+        currentX,
+        sy(current.y)
+      );
+    }
+
+
+    const last =
+      data[
+        data.length - 1
+      ];
+
+
+    ctx.lineTo(
+      sx(maxX),
+      sy(last.y)
+    );
+
+
+  }else{
+
+
+    data.forEach(
+      (point,index) => {
+
+        const x =
+          sx(point.x);
+
+        const y =
+          sy(point.y);
+
+
+        if(index === 0){
+
+          ctx.moveTo(
+            x,
+            y
+          );
+
+        }else{
+
+          ctx.lineTo(
+            x,
+            y
+          );
+        }
+      }
+    );
+  }
+
+
+  ctx.stroke();
+
+
+  const last =
+    data[
+      data.length - 1
+    ];
+
+
+  ctx.beginPath();
+
+  ctx.arc(
+    field === "water"
+      ? sx(maxX)
+      : sx(last.x),
+
+    sy(last.y),
+
+    3.5,
+    0,
+    Math.PI * 2
+  );
+
+  ctx.fill();
+}
+
+
+// ============================================================
+// ÚJRARAJZOLÁS
+// ============================================================
+
+async function redraw(){
+
+  cache = {};
+
+
+  await Promise.all([
+
+    drawChart(
+      "powerChart",
+      "power",
+      selectedRange.power,
+      "MW"
+    ),
+
+    drawChart(
+      "waterChart",
+      "water",
+      selectedRange.water,
+      "cm"
+    )
+
+  ]);
+}
+
+
+// ============================================================
+// IDŐTARTOMÁNY
+// ============================================================
+
+function setRange(
+  chart,
+  hours,
+  button
+){
+
+  selectedRange[chart] =
+    hours;
+
+
+  document
+    .querySelectorAll(
+      '[data-chart="' +
+      chart +
+      '"]'
+    )
+    .forEach(
+      item =>
+        item.classList.remove(
+          "active"
+        )
+    );
+
+
+  button.classList.add(
+    "active"
+  );
+
+
+  cache = {};
+
+
+  if(chart === "power"){
+
+    drawChart(
+      "powerChart",
+      "power",
+      hours,
+      "MW"
+    );
+
+  }else{
+
+    drawChart(
+      "waterChart",
+      "water",
+      hours,
+      "cm"
+    );
+  }
+}
+
+
+document
+  .querySelectorAll(
+    ".periodButton"
+  )
+  .forEach(
+    button => {
+
+      button.addEventListener(
+        "click",
+        () => {
+
+          setRange(
+            button.dataset.chart,
+            Number(
+              button.dataset.hours
+            ),
+            button
+          );
+        }
+      );
+    }
+  );
+
+
+// ============================================================
+// MÁSOLÁS
+// ============================================================
+
+document
+  .getElementById(
+    "copyButton"
+  )
+  ?.addEventListener(
+    "click",
+    async () => {
+
+      try {
+
+        await navigator.clipboard.writeText(
+          PUBLIC_URL
+        );
+
+        alert(
+          "Link másolva"
+        );
+
+      }catch{
+
+        window.prompt(
+          "Másold a linket:",
+          PUBLIC_URL
+        );
+      }
+    }
+  );
+
+
+redraw();
+
+
+window.addEventListener(
+  "resize",
+  () => {
+
+    clearTimeout(
+      window.__resizeTimer
+    );
+
+
+    window.__resizeTimer =
+      setTimeout(
+        redraw,
+        150
+      );
+  }
+);
+
+</script>
+
+</body>
+
+</html>`;
+
+
+    return new Response(
+      html,
+      {
+        headers: {
+
+          "content-type":
+            "text/html;charset=UTF-8",
+
+          "cache-control":
+            "no-store, no-cache, must-revalidate",
+
+          "pragma":
+            "no-cache"
+        }
+      }
+    );
+  }
+};
