@@ -10,6 +10,8 @@ const PUBLIC_URL =
 const FB_IMAGE_RAW =
   "https://raw.githubusercontent.com/laszloiglodi-beep/Paks-monitor/main/60CF06BF-2068-420D-AC41-224FB3B75358.png";
 
+const VERSION = "PAKS MONITOR V4";
+
 
 // ============================================================
 // SEGÉDFÜGGVÉNYEK
@@ -48,7 +50,7 @@ function shortTime(value) {
 
 
 // ============================================================
-// MAGYAR HELYI IDŐ
+// BUDAPESTI IDŐ
 // ============================================================
 
 function getBudapestOffset(timestamp) {
@@ -76,6 +78,7 @@ function getBudapestOffset(timestamp) {
   const values = {};
 
   for (const part of parts) {
+
     if (part.type !== "literal") {
       values[part.type] =
         Number(part.value);
@@ -121,6 +124,7 @@ function parseHuTimestamp(value) {
     desiredLocalAsUTC;
 
   for (let i = 0; i < 2; i++) {
+
     timestamp =
       desiredLocalAsUTC -
       getBudapestOffset(timestamp);
@@ -162,69 +166,38 @@ async function ensureDB(env) {
       )`
     )
     .run();
+}
 
 
-  // ==========================================================
-  // V3 EGYSZERI TAKARÍTÁS
-  //
-  // CSAK a korábbi hibás Duna-történetet töröljük.
-  // Az erőmű teljesítménytörténete megmarad.
-  // ==========================================================
+// ============================================================
+// DUNA TÖRTÉNET TÖRLÉSE
+// ============================================================
 
-  const migration =
-    await env.DB
-      .prepare(
-        "SELECT value FROM meta WHERE key = ?"
-      )
-      .bind(
-        "river_history_cleanup_v3"
-      )
-      .first();
+async function resetRiverHistory(env) {
 
+  await ensureDB(env);
 
-  if (!migration) {
+  await env.DB
+    .prepare(
+      `UPDATE measurements
+       SET
+         water = NULL,
+         flow = NULL,
+         temp = NULL`
+    )
+    .run();
 
-    await env.DB
-      .prepare(
-        `UPDATE measurements
-         SET water = NULL,
-             flow = NULL,
-             temp = NULL`
-      )
-      .run();
+  await env.DB
+    .prepare(
+      `DELETE FROM measurements
+       WHERE power IS NULL
+         AND water IS NULL
+         AND flow IS NULL
+         AND temp IS NULL`
+    )
+    .run();
 
-
-    // Azokat a sorokat töröljük,
-    // amelyekben már semmi adat nincs.
-
-    await env.DB
-      .prepare(
-        `DELETE FROM measurements
-         WHERE power IS NULL
-           AND water IS NULL
-           AND flow IS NULL
-           AND temp IS NULL`
-      )
-      .run();
-
-
-    await env.DB
-      .prepare(
-        `INSERT OR REPLACE INTO meta
-         (key, value)
-         VALUES (?, ?)`
-      )
-      .bind(
-        "river_history_cleanup_v3",
-        "done"
-      )
-      .run();
-
-
-    console.log(
-      "DUNA HISTORY V3 CLEANUP DONE"
-    );
-  }
+  return true;
 }
 
 
@@ -262,7 +235,7 @@ async function getCurrentData() {
         {
           headers: {
             "User-Agent":
-              "Mozilla/5.0 (compatible; PaksMonitor/3.0)"
+              "Mozilla/5.0 (compatible; PaksMonitor/4.0)"
           }
         }
       );
@@ -274,7 +247,6 @@ async function getCurrentData() {
       );
     }
 
-
     const text =
       clean(
         await response.text()
@@ -285,7 +257,6 @@ async function getCurrentData() {
       text.match(
         /Mérés dátuma:\s*([0-9]{4}\.\s*[0-9]{2}\.\s*[0-9]{2}\.?\s*[0-9]{2}:[0-9]{2})/i
       );
-
 
     if (date) {
 
@@ -359,14 +330,12 @@ async function getCurrentData() {
         {
           headers: {
             "User-Agent":
-              "Mozilla/5.0 (compatible; PaksMonitor/3.0)"
+              "Mozilla/5.0 (compatible; PaksMonitor/4.0)"
           }
         }
       );
 
-
     if (!response.ok) {
-
       throw new Error(
         "VIZ HTTP " +
         response.status
@@ -379,14 +348,6 @@ async function getCurrentData() {
         await response.text()
       );
 
-
-    /*
-      Időpont
-      vízállás
-      vízhozam
-      hőmérséklet 1
-      hőmérséklet 2
-    */
 
     const rowRegex =
       /(20\d{2}\.\s*\d{2}\.\s*\d{2}\.?\s*\d{2}:\d{2})\s+(-?\d+)\s+(-|\d+(?:[.,]\d+)?)\s+(-|\d+(?:[.,]\d+)?)\s+(-|\d+(?:[.,]\d+)?)/g;
@@ -405,7 +366,6 @@ async function getCurrentData() {
         parseHuTimestamp(
           match[1]
         );
-
 
       if (
         !Number.isFinite(timestamp)
@@ -446,15 +406,14 @@ async function getCurrentData() {
         latestRow.timestamp;
 
 
-      // --------------------------
+      // ------------------------------------------------------
       // VÍZÁLLÁS
-      // --------------------------
+      // ------------------------------------------------------
 
       const w =
         Number(
           latestRow.water
         );
-
 
       if (
         Number.isFinite(w) &&
@@ -466,9 +425,9 @@ async function getCurrentData() {
       }
 
 
-      // --------------------------
+      // ------------------------------------------------------
       // VÍZHOZAM
-      // --------------------------
+      // ------------------------------------------------------
 
       if (
         latestRow.flow !== "-"
@@ -482,7 +441,6 @@ async function getCurrentData() {
             )
           );
 
-
         if (
           Number.isFinite(f) &&
           f >= 0 &&
@@ -494,9 +452,9 @@ async function getCurrentData() {
       }
 
 
-      // --------------------------
+      // ------------------------------------------------------
       // VÍZHŐMÉRSÉKLET
-      // --------------------------
+      // ------------------------------------------------------
 
       const candidates = [
         latestRow.temp1,
@@ -515,7 +473,6 @@ async function getCurrentData() {
           continue;
         }
 
-
         const t =
           Number(
             raw.replace(
@@ -523,7 +480,6 @@ async function getCurrentData() {
               "."
             )
           );
-
 
         if (
           Number.isFinite(t) &&
@@ -580,6 +536,7 @@ async function getCurrentData() {
 
 
   return {
+
     blocks,
     total,
 
@@ -614,8 +571,7 @@ async function saveMeasurement(
 
 
     // ========================================================
-    // PAKS
-    // OAH SAJÁT MÉRÉSI IDŐPONT
+    // OAH
     // ========================================================
 
     if (
@@ -631,11 +587,12 @@ async function saveMeasurement(
         .prepare(
           `INSERT INTO measurements
            (ts, power, water, flow, temp)
+
            VALUES (?, ?, NULL, NULL, NULL)
 
            ON CONFLICT(ts)
            DO UPDATE SET
-           power = excluded.power`
+             power = excluded.power`
         )
         .bind(
           data.oahTimestamp,
@@ -648,15 +605,7 @@ async function saveMeasurement(
     // ========================================================
     // DUNA
     //
-    // EZ A LÉNYEG:
-    //
-    // NEM Date.now()
-    // NEM Worker futási idő
-    //
-    // CSAK A VÍZÜGY SAJÁT MÉRÉSI IDŐPONTJA.
-    //
-    // Ha 08:00 adatot 12x lekérjük:
-    // akkor is CSAK EGYETLEN 08:00 pont marad.
+    // CSAK A VÍZÜGY SAJÁT IDŐPONTJÁVAL MENTÜNK.
     // ========================================================
 
     if (
@@ -702,7 +651,9 @@ async function saveMeasurement(
     }
 
 
-    // 11 nap megtartása
+    // --------------------------------------------------------
+    // 11 NAPOS ADATTARTÁS
+    // --------------------------------------------------------
 
     const cutoff =
       Date.now() -
@@ -722,11 +673,11 @@ async function saveMeasurement(
 
 
     console.log(
-      "SAVE",
-      "OAH",
+      "SAVE V4",
+      "OAH:",
       data.oahTimestamp,
       data.total,
-      "VIZ",
+      "VIZ:",
       data.riverTimestamp,
       data.water
     );
@@ -749,6 +700,10 @@ async function saveMeasurement(
 
 export default {
 
+  // ==========================================================
+  // CRON
+  // ==========================================================
+
   async scheduled(
     controller,
     env,
@@ -768,6 +723,10 @@ export default {
   },
 
 
+  // ==========================================================
+  // HTTP
+  // ==========================================================
+
   async fetch(
     request,
     env,
@@ -781,7 +740,163 @@ export default {
 
 
     // ========================================================
-    // FACEBOOK IMAGE
+    // V4 VERZIÓ ELLENŐRZÉS
+    // ========================================================
+
+    if (
+      url.pathname ===
+      "/version"
+    ) {
+
+      return new Response(
+        VERSION,
+        {
+          status: 200,
+          headers: {
+            "content-type":
+              "text/plain;charset=UTF-8",
+            "cache-control":
+              "no-store"
+          }
+        }
+      );
+    }
+
+
+    // ========================================================
+    // DUNA RESET
+    // ========================================================
+
+    if (
+      url.pathname ===
+      "/reset-river-history"
+    ) {
+
+      try {
+
+        await resetRiverHistory(
+          env
+        );
+
+
+        return new Response(
+          `<!doctype html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta
+  name="viewport"
+  content="width=device-width,initial-scale=1"
+>
+<title>Duna reset</title>
+
+<style>
+
+body{
+  margin:0;
+  background:#030812;
+  color:#fff;
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Arial,
+    sans-serif;
+  min-height:100vh;
+  display:grid;
+  place-items:center;
+}
+
+.box{
+  width:min(90%,500px);
+  padding:30px;
+  border:1px solid #1b3b57;
+  border-radius:20px;
+  background:#07111d;
+  text-align:center;
+}
+
+.ok{
+  color:#66df57;
+  font-size:26px;
+  font-weight:900;
+}
+
+.small{
+  margin-top:12px;
+  color:#8f9daf;
+  font-size:14px;
+}
+
+a{
+  display:inline-block;
+  margin-top:24px;
+  color:#49a9ff;
+  text-decoration:none;
+  font-weight:800;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="box">
+
+  <div class="ok">
+    DUNA HISTORY CLEARED ✓
+  </div>
+
+  <div class="small">
+    A régi hibás vízállás-előzmény törölve.
+  </div>
+
+  <div class="small">
+    ${VERSION}
+  </div>
+
+  <a href="/">
+    VISSZA A MONITORHOZ
+  </a>
+
+</div>
+
+</body>
+</html>`,
+          {
+            status: 200,
+            headers: {
+              "content-type":
+                "text/html;charset=UTF-8",
+              "cache-control":
+                "no-store"
+            }
+          }
+        );
+
+
+      } catch (error) {
+
+        return new Response(
+          "RESET ERROR: " +
+          (
+            error?.message ||
+            String(error)
+          ),
+          {
+            status: 500,
+            headers: {
+              "content-type":
+                "text/plain;charset=UTF-8"
+            }
+          }
+        );
+      }
+    }
+
+
+    // ========================================================
+    // FACEBOOK KÉP
     // ========================================================
 
     if (
@@ -836,7 +951,7 @@ export default {
 
 
     // ========================================================
-    // HISTORY
+    // HISTORY API
     // ========================================================
 
     if (
@@ -897,12 +1012,19 @@ export default {
         return new Response(
           JSON.stringify({
             ok: true,
+            version: VERSION,
+
             count:
-              result.results?.length || 0,
+              result.results?.length ||
+              0,
+
             data:
-              result.results || []
+              result.results ||
+              []
           }),
           {
+            status: 200,
+
             headers: {
 
               "content-type":
@@ -920,12 +1042,15 @@ export default {
         return new Response(
           JSON.stringify({
             ok: false,
+            version: VERSION,
             data: [],
             error:
               error?.message ||
               String(error)
           }),
           {
+            status: 200,
+
             headers: {
 
               "content-type":
@@ -976,6 +1101,10 @@ export default {
     } = data;
 
 
+    // ========================================================
+    // SZÖVEGEK
+    // ========================================================
+
     const totalText =
       Number.isFinite(total)
         ? `${total} MW`
@@ -1011,6 +1140,10 @@ export default {
         ? water + 144
         : null;
 
+
+    // ========================================================
+    // VÍZSZINT STÁTUSZ
+    // ========================================================
 
     let riverClass =
       "normal";
@@ -1078,6 +1211,10 @@ export default {
         );
     }
 
+
+    // ========================================================
+    // HTML
+    // ========================================================
 
     const html = `<!doctype html>
 <html lang="hu">
@@ -1575,6 +1712,14 @@ canvas{
   font-weight:900;
 }
 
+.version{
+  margin-top:6px;
+  text-align:center;
+  color:#405268;
+  font-size:6px;
+  letter-spacing:1px;
+}
+
 .toast{
   position:fixed;
   left:50%;
@@ -1719,6 +1864,7 @@ canvas{
 
           </div>
 
+
           <div class="chartWrap">
             <canvas id="powerChart"></canvas>
           </div>
@@ -1825,6 +1971,7 @@ canvas{
             </div>
 
           </div>
+
 
           <div class="chartWrap">
             <canvas id="waterChart"></canvas>
@@ -1988,6 +2135,11 @@ canvas{
 
   </div>
 
+
+  <div class="version">
+    ${VERSION}
+  </div>
+
 </div>
 
 
@@ -2025,7 +2177,9 @@ async function getHistory(hours) {
     const response =
       await fetch(
         "/api/history?hours=" +
-        hours,
+        hours +
+        "&v=" +
+        Date.now(),
         {
           cache: "no-store"
         }
@@ -2130,7 +2284,8 @@ async function drawChart(
 
 
   const ratio =
-    window.devicePixelRatio || 1;
+    window.devicePixelRatio ||
+    1;
 
 
   canvas.width =
@@ -2202,6 +2357,10 @@ async function drawChart(
     pad.bottom;
 
 
+  // ==========================================================
+  // RÁCS
+  // ==========================================================
+
   ctx.strokeStyle =
     "rgba(115,145,170,.18)";
 
@@ -2259,6 +2418,10 @@ async function drawChart(
   }
 
 
+  // ==========================================================
+  // Y TARTOMÁNY
+  // ==========================================================
+
   let minY =
     Math.min(
       ...data.map(
@@ -2284,7 +2447,8 @@ async function drawChart(
         ? 2
         : Math.max(
             1,
-            Math.abs(minY) * .02
+            Math.abs(minY) *
+            .02
           );
 
 
@@ -2295,10 +2459,7 @@ async function drawChart(
 
   const margin =
     Math.max(
-      field === "water"
-        ? 1
-        : 1,
-
+      1,
       (maxY - minY) *
       .15
     );
@@ -2307,6 +2468,10 @@ async function drawChart(
   minY -= margin;
   maxY += margin;
 
+
+  // ==========================================================
+  // X TARTOMÁNY
+  // ==========================================================
 
   const maxX =
     Date.now();
@@ -2457,14 +2622,18 @@ async function drawChart(
     2.2;
 
   ctx.lineJoin =
-    "round";
+    field === "water"
+      ? "miter"
+      : "round";
 
   ctx.lineCap =
-    "round";
+    field === "water"
+      ? "butt"
+      : "round";
 
 
   // ==========================================================
-  // EGY PONT
+  // EGYETLEN ADAT
   // ==========================================================
 
   if (
@@ -2474,12 +2643,6 @@ async function drawChart(
     const p =
       data[0];
 
-
-    /*
-      A valódi mérési értéket
-      vízszintesen visszük tovább
-      a jelen időpontig.
-    */
 
     ctx.beginPath();
 
@@ -2519,14 +2682,15 @@ async function drawChart(
 
 
   // ==========================================================
-  // DUNA = LÉPCSŐS GRAFIKON
+  // DUNA
   //
-  // 08:00 -124
-  //          ───────────────
-  // 09:00 -123
+  // CSAK LÉPCSŐS:
   //
-  // NINCS interpoláció.
-  // NINCS 5 perces pont.
+  // ─────────┐
+  //          │
+  //          └─────────
+  //
+  // NINCS FERDE VONAL.
   // ==========================================================
 
   if (
@@ -2537,11 +2701,20 @@ async function drawChart(
       data[0];
 
 
+    let firstX =
+      sx(first.x);
+
+
+    if (
+      firstX < pad.left
+    ) {
+      firstX =
+        pad.left;
+    }
+
+
     ctx.moveTo(
-      Math.max(
-        pad.left,
-        sx(first.x)
-      ),
+      firstX,
       sy(first.y)
     );
 
@@ -2559,14 +2732,28 @@ async function drawChart(
         data[i];
 
 
-      const currentX =
+      let currentX =
         sx(current.x);
 
 
-      /*
-        ELŐZŐ ÉRTÉK MARAD
-        AZ ÚJ MÉRÉSIG
-      */
+      if (
+        currentX < pad.left
+      ) {
+        continue;
+      }
+
+
+      if (
+        currentX >
+        W - pad.right
+      ) {
+        break;
+      }
+
+
+      // ------------------------------------------------------
+      // VÍZSZINTESEN TARTJUK AZ ELŐZŐ MÉRÉST
+      // ------------------------------------------------------
 
       ctx.lineTo(
         currentX,
@@ -2574,10 +2761,9 @@ async function drawChart(
       );
 
 
-      /*
-        AZ ÚJ MÉRÉS PILLANATÁBAN
-        VÁLT AZ ÚJ ÉRTÉKRE
-      */
+      // ------------------------------------------------------
+      // CSAK AZ ÚJ MÉRÉS IDŐPONTJÁBAN UGRIK
+      // ------------------------------------------------------
 
       ctx.lineTo(
         currentX,
@@ -2592,10 +2778,9 @@ async function drawChart(
       ];
 
 
-    /*
-      Legutolsó hivatalos mérés
-      vízszintesen a jelenig.
-    */
+    // --------------------------------------------------------
+    // LEGUTOLSÓ MÉRÉS → JELEN
+    // --------------------------------------------------------
 
     ctx.lineTo(
       sx(maxX),
@@ -2646,6 +2831,10 @@ async function drawChart(
 
   ctx.stroke();
 
+
+  // ==========================================================
+  // UTOLSÓ PONT
+  // ==========================================================
 
   const last =
     data[
@@ -2878,7 +3067,10 @@ window.addEventListener(
             "text/html;charset=UTF-8",
 
           "cache-control":
-            "no-store"
+            "no-store, no-cache, must-revalidate",
+
+          "pragma":
+            "no-cache"
         }
       }
     );
