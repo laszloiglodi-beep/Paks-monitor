@@ -10,7 +10,24 @@ const PUBLIC_URL =
 const FB_IMAGE_RAW =
   "https://raw.githubusercontent.com/laszloiglodi-beep/Paks-monitor/main/60CF06BF-2068-420D-AC41-224FB3B75358.png";
 
-const VERSION = "PAKS MONITOR V5";
+const VERSION =
+  "PAKS MONITOR V6";
+
+
+/*
+  ============================================================
+  KILÉPŐ VÍZ HŐ
+
+  Legutóbbi beemelt MVM mérés.
+  A dátumot külön kiírjuk, tehát nem jelenik meg élő adatként.
+  ============================================================
+*/
+
+const OUTLET_TEMP =
+  34.9;
+
+const OUTLET_TEMP_DATE =
+  "08.14";
 
 
 // ============================================================
@@ -18,39 +35,80 @@ const VERSION = "PAKS MONITOR V5";
 // ============================================================
 
 function clean(html) {
+
   return String(html || "")
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&#160;/gi, " ")
-    .replace(/&minus;/gi, "-")
-    .replace(/&#8722;/gi, "-")
-    .replace(/\s+/g, " ")
+    .replace(
+      /<script[\s\S]*?<\/script>/gi,
+      " "
+    )
+    .replace(
+      /<style[\s\S]*?<\/style>/gi,
+      " "
+    )
+    .replace(
+      /<[^>]+>/g,
+      " "
+    )
+    .replace(
+      /&nbsp;/gi,
+      " "
+    )
+    .replace(
+      /&#160;/gi,
+      " "
+    )
+    .replace(
+      /&minus;/gi,
+      "-"
+    )
+    .replace(
+      /&#8722;/gi,
+      "-"
+    )
+    .replace(
+      /&deg;/gi,
+      "°"
+    )
+    .replace(
+      /\s+/g,
+      " "
+    )
     .trim();
 }
 
 
 function fmt1(value) {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value.toLocaleString("hu-HU", {
-        minimumFractionDigits: 1,
-        maximumFractionDigits: 1
-      })
+
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value)
+  )
+    ? value.toLocaleString(
+        "hu-HU",
+        {
+          minimumFractionDigits: 1,
+          maximumFractionDigits: 1
+        }
+      )
     : "—";
 }
 
 
 function shortTime(value) {
-  const match =
-    String(value || "").match(/(\d{2}:\d{2})/);
 
-  return match ? match[1] : "—";
+  const match =
+    String(value || "").match(
+      /(\d{2}:\d{2})/
+    );
+
+  return match
+    ? match[1]
+    : "—";
 }
 
 
 // ============================================================
-// BUDAPESTI IDŐ
+// BUDAPESTI HELYI IDŐ
 // ============================================================
 
 function getBudapestOffset(timestamp) {
@@ -59,31 +117,60 @@ function getBudapestOffset(timestamp) {
     new Intl.DateTimeFormat(
       "en-GB",
       {
-        timeZone: "Europe/Budapest",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hourCycle: "h23"
+        timeZone:
+          "Europe/Budapest",
+
+        year:
+          "numeric",
+
+        month:
+          "2-digit",
+
+        day:
+          "2-digit",
+
+        hour:
+          "2-digit",
+
+        minute:
+          "2-digit",
+
+        second:
+          "2-digit",
+
+        hourCycle:
+          "h23"
       }
     );
+
 
   const parts =
     formatter.formatToParts(
       new Date(timestamp)
     );
 
+
   const values = {};
 
-  for (const part of parts) {
 
-    if (part.type !== "literal") {
-      values[part.type] =
-        Number(part.value);
+  for (
+    const part of parts
+  ) {
+
+    if (
+      part.type !==
+      "literal"
+    ) {
+
+      values[
+        part.type
+      ] =
+        Number(
+          part.value
+        );
     }
   }
+
 
   const localAsUTC =
     Date.UTC(
@@ -95,20 +182,27 @@ function getBudapestOffset(timestamp) {
       values.second
     );
 
-  return localAsUTC - timestamp;
+
+  return (
+    localAsUTC -
+    timestamp
+  );
 }
 
 
 function parseHuTimestamp(value) {
 
   const match =
-    String(value || "").match(
-      /(\d{4})\.\s*(\d{2})\.\s*(\d{2})\.?\s*(\d{2}):(\d{2})/
-    );
+    String(value || "")
+      .match(
+        /(\d{4})\.\s*(\d{2})\.\s*(\d{2})\.?\s*(\d{2}):(\d{2})/
+      );
+
 
   if (!match) {
     return null;
   }
+
 
   const desiredLocalAsUTC =
     Date.UTC(
@@ -120,17 +214,28 @@ function parseHuTimestamp(value) {
       0
     );
 
+
   let timestamp =
     desiredLocalAsUTC;
 
-  for (let i = 0; i < 2; i++) {
+
+  for (
+    let i = 0;
+    i < 2;
+    i++
+  ) {
 
     timestamp =
       desiredLocalAsUTC -
-      getBudapestOffset(timestamp);
+      getBudapestOffset(
+        timestamp
+      );
   }
 
-  return Number.isFinite(timestamp)
+
+  return Number.isFinite(
+    timestamp
+  )
     ? timestamp
     : null;
 }
@@ -142,9 +247,16 @@ function parseHuTimestamp(value) {
 
 async function ensureDB(env) {
 
-  if (!env || !env.DB) {
-    throw new Error("DB binding missing");
+  if (
+    !env ||
+    !env.DB
+  ) {
+
+    throw new Error(
+      "DB binding missing"
+    );
   }
+
 
   await env.DB
     .prepare(
@@ -158,6 +270,7 @@ async function ensureDB(env) {
     )
     .run();
 
+
   await env.DB
     .prepare(
       `CREATE TABLE IF NOT EXISTS meta (
@@ -170,12 +283,13 @@ async function ensureDB(env) {
 
 
 // ============================================================
-// DUNA TÖRTÉNET TÖRLÉSE
+// DUNA HISTORY RESET
 // ============================================================
 
 async function resetRiverHistory(env) {
 
   await ensureDB(env);
+
 
   await env.DB
     .prepare(
@@ -187,15 +301,18 @@ async function resetRiverHistory(env) {
     )
     .run();
 
+
   await env.DB
     .prepare(
       `DELETE FROM measurements
-       WHERE power IS NULL
+       WHERE
+         power IS NULL
          AND water IS NULL
          AND flow IS NULL
          AND temp IS NULL`
     )
     .run();
+
 
   return true;
 }
@@ -208,23 +325,46 @@ async function resetRiverHistory(env) {
 async function getCurrentData() {
 
   let blocks =
-    ["—", "—", "—", "—"];
+    [
+      "—",
+      "—",
+      "—",
+      "—"
+    ];
 
-  let oahTime = "—";
-  let oahTimestamp = null;
-  let oahStatus = "OK";
 
-  let water = null;
-  let flow = null;
-  let temp = null;
+  let oahTime =
+    "—";
 
-  let riverTime = "—";
-  let riverTimestamp = null;
-  let riverStatus = "OK";
+  let oahTimestamp =
+    null;
+
+  let oahStatus =
+    "OK";
+
+
+  let water =
+    null;
+
+  let flow =
+    null;
+
+  let temp =
+    null;
+
+
+  let riverTime =
+    "—";
+
+  let riverTimestamp =
+    null;
+
+  let riverStatus =
+    "OK";
 
 
   // ==========================================================
-  // OAH
+  // OAH – PAKSI BLOKKOK
   // ==========================================================
 
   try {
@@ -234,18 +374,32 @@ async function getCurrentData() {
         OAH_URL,
         {
           headers: {
+
             "User-Agent":
-              "Mozilla/5.0 (compatible; PaksMonitor/4.0)"
+              "Mozilla/5.0 (compatible; PaksMonitor/6.0)"
+          },
+
+          cf: {
+            cacheTtl:
+              60,
+
+            cacheEverything:
+              false
           }
         }
       );
 
-    if (!response.ok) {
+
+    if (
+      !response.ok
+    ) {
+
       throw new Error(
         "OAH HTTP " +
         response.status
       );
     }
+
 
     const text =
       clean(
@@ -258,10 +412,12 @@ async function getCurrentData() {
         /Mérés dátuma:\s*([0-9]{4}\.\s*[0-9]{2}\.\s*[0-9]{2}\.?\s*[0-9]{2}:[0-9]{2})/i
       );
 
+
     if (date) {
 
       oahTime =
         date[1];
+
 
       oahTimestamp =
         parseHuTimestamp(
@@ -270,25 +426,73 @@ async function getCurrentData() {
     }
 
 
-    const power =
+    /*
+      Elsődleges parser.
+    */
+
+    const mainPower =
       text.match(
         /1\.\s*blokk\s*2\.\s*blokk\s*3\.\s*blokk\s*4\.\s*blokk\s*(\d+)\s*MW\s*(\d+)\s*MW\s*(\d+)\s*MW\s*(\d+)\s*MW/i
       );
 
 
-    if (power) {
+    if (mainPower) {
 
       blocks = [
-        power[1],
-        power[2],
-        power[3],
-        power[4]
+        mainPower[1],
+        mainPower[2],
+        mainPower[3],
+        mainPower[4]
       ];
 
     } else {
 
-      oahStatus =
-        "ADATHIBA";
+      /*
+        Tartalék parser.
+      */
+
+      const values = [];
+
+
+      for (
+        let i = 1;
+        i <= 4;
+        i++
+      ) {
+
+        const re =
+          new RegExp(
+            i +
+            "\\.\\s*blokk[^0-9]{0,150}(\\d+)\\s*MW",
+            "i"
+          );
+
+
+        const match =
+          text.match(re);
+
+
+        if (match) {
+
+          values.push(
+            match[1]
+          );
+        }
+      }
+
+
+      if (
+        values.length === 4
+      ) {
+
+        blocks =
+          values;
+
+      } else {
+
+        oahStatus =
+          "ADATHIBA";
+      }
     }
 
 
@@ -310,6 +514,7 @@ async function getCurrentData() {
     oahStatus =
       "KAPCSOLATI HIBA";
 
+
     console.log(
       "OAH ERROR:",
       error?.message ||
@@ -319,7 +524,7 @@ async function getCurrentData() {
 
 
   // ==========================================================
-  // VÍZÜGY
+  // VÍZÜGY – PAKS
   // ==========================================================
 
   try {
@@ -329,13 +534,27 @@ async function getCurrentData() {
         VIZ_URL,
         {
           headers: {
+
             "User-Agent":
-              "Mozilla/5.0 (compatible; PaksMonitor/4.0)"
+              "Mozilla/5.0 (compatible; PaksMonitor/6.0)"
+          },
+
+          cf: {
+
+            cacheTtl:
+              60,
+
+            cacheEverything:
+              false
           }
         }
       );
 
-    if (!response.ok) {
+
+    if (
+      !response.ok
+    ) {
+
       throw new Error(
         "VIZ HTTP " +
         response.status
@@ -349,17 +568,31 @@ async function getCurrentData() {
       );
 
 
+    /*
+      Időpont
+      vízállás
+      vízhozam
+      temp1
+      temp2
+    */
+
     const rowRegex =
       /(20\d{2}\.\s*\d{2}\.\s*\d{2}\.?\s*\d{2}:\d{2})\s+(-?\d+)\s+(-|\d+(?:[.,]\d+)?)\s+(-|\d+(?:[.,]\d+)?)\s+(-|\d+(?:[.,]\d+)?)/g;
 
 
-    let latestRow = null;
+    let latestRow =
+      null;
+
     let match;
 
 
     while (
-      (match =
-        rowRegex.exec(text)) !== null
+      (
+        match =
+          rowRegex.exec(
+            text
+          )
+      ) !== null
     ) {
 
       const timestamp =
@@ -367,9 +600,13 @@ async function getCurrentData() {
           match[1]
         );
 
+
       if (
-        !Number.isFinite(timestamp)
+        !Number.isFinite(
+          timestamp
+        )
       ) {
+
         continue;
       }
 
@@ -381,18 +618,31 @@ async function getCurrentData() {
       ) {
 
         latestRow = {
+
           timestamp,
-          time: match[1],
-          water: match[2],
-          flow: match[3],
-          temp1: match[4],
-          temp2: match[5]
+
+          time:
+            match[1],
+
+          water:
+            match[2],
+
+          flow:
+            match[3],
+
+          temp1:
+            match[4],
+
+          temp2:
+            match[5]
         };
       }
     }
 
 
-    if (!latestRow) {
+    if (
+      !latestRow
+    ) {
 
       riverStatus =
         "ADATHIBA";
@@ -401,6 +651,7 @@ async function getCurrentData() {
 
       riverTime =
         latestRow.time;
+
 
       riverTimestamp =
         latestRow.timestamp;
@@ -415,13 +666,15 @@ async function getCurrentData() {
           latestRow.water
         );
 
+
       if (
         Number.isFinite(w) &&
         w > -1000 &&
         w < 1000
       ) {
 
-        water = w;
+        water =
+          w;
       }
 
 
@@ -430,16 +683,19 @@ async function getCurrentData() {
       // ------------------------------------------------------
 
       if (
-        latestRow.flow !== "-"
+        latestRow.flow !==
+        "-"
       ) {
 
         const f =
           Number(
-            latestRow.flow.replace(
-              ",",
-              "."
-            )
+            latestRow.flow
+              .replace(
+                ",",
+                "."
+              )
           );
+
 
         if (
           Number.isFinite(f) &&
@@ -447,33 +703,39 @@ async function getCurrentData() {
           f <= 20000
         ) {
 
-          flow = f;
+          flow =
+            f;
         }
       }
 
 
       // ------------------------------------------------------
-      // VÍZHŐMÉRSÉKLET
+      // DUNA VÍZHŐ
       // ------------------------------------------------------
 
       const candidates = [
+
         latestRow.temp1,
+
         latestRow.temp2
       ];
 
 
       for (
-        const raw of candidates
+        const raw of
+        candidates
       ) {
 
         if (
           !raw ||
           raw === "-"
         ) {
+
           continue;
         }
 
-        const t =
+
+        const value =
           Number(
             raw.replace(
               ",",
@@ -481,20 +743,27 @@ async function getCurrentData() {
             )
           );
 
+
         if (
-          Number.isFinite(t) &&
-          t >= 0 &&
-          t <= 40
+          Number.isFinite(
+            value
+          ) &&
+          value >= 0 &&
+          value <= 40
         ) {
 
-          temp = t;
+          temp =
+            value;
+
           break;
         }
       }
 
 
       if (
-        !Number.isFinite(water)
+        !Number.isFinite(
+          water
+        )
       ) {
 
         riverStatus =
@@ -507,6 +776,7 @@ async function getCurrentData() {
 
     riverStatus =
       "KAPCSOLATI HIBA";
+
 
     console.log(
       "VIZ ERROR:",
@@ -528,8 +798,12 @@ async function getCurrentData() {
   const total =
     validBlocks
       ? blocks.reduce(
-          (sum, value) =>
-            sum + Number(value),
+          (
+            sum,
+            value
+          ) =>
+            sum +
+            Number(value),
           0
         )
       : null;
@@ -538,19 +812,25 @@ async function getCurrentData() {
   return {
 
     blocks,
+
     total,
 
     water,
+
     flow,
+
     temp,
 
     oahTime,
+
     oahTimestamp,
 
     riverTime,
+
     riverTimestamp,
 
     oahStatus,
+
     riverStatus
   };
 }
@@ -567,11 +847,13 @@ async function saveMeasurement(
 
   try {
 
-    await ensureDB(env);
+    await ensureDB(
+      env
+    );
 
 
     // ========================================================
-    // OAH
+    // PAKS
     // ========================================================
 
     if (
@@ -586,13 +868,26 @@ async function saveMeasurement(
       await env.DB
         .prepare(
           `INSERT INTO measurements
-           (ts, power, water, flow, temp)
+           (
+             ts,
+             power,
+             water,
+             flow,
+             temp
+           )
 
-           VALUES (?, ?, NULL, NULL, NULL)
+           VALUES (
+             ?,
+             ?,
+             NULL,
+             NULL,
+             NULL
+           )
 
            ON CONFLICT(ts)
            DO UPDATE SET
-             power = excluded.power`
+             power =
+               excluded.power`
         )
         .bind(
           data.oahTimestamp,
@@ -605,7 +900,9 @@ async function saveMeasurement(
     // ========================================================
     // DUNA
     //
-    // CSAK A VÍZÜGY SAJÁT IDŐPONTJÁVAL MENTÜNK.
+    // CSAK A VÍZÜGY SAJÁT KÖZZÉTÉTELI IDŐPONTJÁT MENTJÜK.
+    //
+    // NEM A WORKER 5 PERCES FUTÁSI IDŐPONTJÁT.
     // ========================================================
 
     if (
@@ -620,17 +917,35 @@ async function saveMeasurement(
       await env.DB
         .prepare(
           `INSERT INTO measurements
-           (ts, power, water, flow, temp)
+           (
+             ts,
+             power,
+             water,
+             flow,
+             temp
+           )
 
-           VALUES (?, NULL, ?, ?, ?)
+           VALUES (
+             ?,
+             NULL,
+             ?,
+             ?,
+             ?
+           )
 
            ON CONFLICT(ts)
            DO UPDATE SET
-             water = excluded.water,
-             flow = excluded.flow,
-             temp = excluded.temp`
+             water =
+               excluded.water,
+
+             flow =
+               excluded.flow,
+
+             temp =
+               excluded.temp`
         )
         .bind(
+
           data.riverTimestamp,
 
           data.water,
@@ -651,9 +966,9 @@ async function saveMeasurement(
     }
 
 
-    // --------------------------------------------------------
-    // 11 NAPOS ADATTARTÁS
-    // --------------------------------------------------------
+    // ========================================================
+    // 11 NAP ADATTARTÁS
+    // ========================================================
 
     const cutoff =
       Date.now() -
@@ -666,21 +981,13 @@ async function saveMeasurement(
 
     await env.DB
       .prepare(
-        "DELETE FROM measurements WHERE ts < ?"
+        `DELETE FROM measurements
+         WHERE ts < ?`
       )
-      .bind(cutoff)
+      .bind(
+        cutoff
+      )
       .run();
-
-
-    console.log(
-      "SAVE V4",
-      "OAH:",
-      data.oahTimestamp,
-      data.total,
-      "VIZ:",
-      data.riverTimestamp,
-      data.water
-    );
 
 
   } catch (error) {
@@ -699,6 +1006,7 @@ async function saveMeasurement(
 // ============================================================
 
 export default {
+
 
   // ==========================================================
   // CRON
@@ -740,7 +1048,7 @@ export default {
 
 
     // ========================================================
-    // V4 VERZIÓ ELLENŐRZÉS
+    // VERSION
     // ========================================================
 
     if (
@@ -751,10 +1059,11 @@ export default {
       return new Response(
         VERSION,
         {
-          status: 200,
           headers: {
+
             "content-type":
               "text/plain;charset=UTF-8",
+
             "cache-control":
               "no-store"
           }
@@ -764,7 +1073,7 @@ export default {
 
 
     // ========================================================
-    // DUNA RESET
+    // DUNA HISTORY RESET
     // ========================================================
 
     if (
@@ -780,94 +1089,14 @@ export default {
 
 
         return new Response(
-          `<!doctype html>
-<html lang="hu">
-<head>
-<meta charset="utf-8">
-<meta
-  name="viewport"
-  content="width=device-width,initial-scale=1"
->
-<title>Duna reset</title>
-
-<style>
-
-body{
-  margin:0;
-  background:#030812;
-  color:#fff;
-  font-family:
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    Arial,
-    sans-serif;
-  min-height:100vh;
-  display:grid;
-  place-items:center;
-}
-
-.box{
-  width:min(90%,500px);
-  padding:30px;
-  border:1px solid #1b3b57;
-  border-radius:20px;
-  background:#07111d;
-  text-align:center;
-}
-
-.ok{
-  color:#66df57;
-  font-size:26px;
-  font-weight:900;
-}
-
-.small{
-  margin-top:12px;
-  color:#8f9daf;
-  font-size:14px;
-}
-
-a{
-  display:inline-block;
-  margin-top:24px;
-  color:#49a9ff;
-  text-decoration:none;
-  font-weight:800;
-}
-
-</style>
-</head>
-
-<body>
-
-<div class="box">
-
-  <div class="ok">
-    DUNA HISTORY CLEARED ✓
-  </div>
-
-  <div class="small">
-    A régi hibás vízállás-előzmény törölve.
-  </div>
-
-  <div class="small">
-    ${VERSION}
-  </div>
-
-  <a href="/">
-    VISSZA A MONITORHOZ
-  </a>
-
-</div>
-
-</body>
-</html>`,
+          `DUNA HISTORY CLEARED ✓
+${VERSION}`,
           {
-            status: 200,
             headers: {
+
               "content-type":
-                "text/html;charset=UTF-8",
+                "text/plain;charset=UTF-8",
+
               "cache-control":
                 "no-store"
             }
@@ -884,11 +1113,8 @@ a{
             String(error)
           ),
           {
-            status: 500,
-            headers: {
-              "content-type":
-                "text/plain;charset=UTF-8"
-            }
+            status:
+              500
           }
         );
       }
@@ -912,12 +1138,15 @@ a{
           );
 
 
-        if (!response.ok) {
+        if (
+          !response.ok
+        ) {
 
           return new Response(
             "Image not found",
             {
-              status: 404
+              status:
+                404
             }
           );
         }
@@ -943,7 +1172,8 @@ a{
         return new Response(
           "Image unavailable",
           {
-            status: 503
+            status:
+              503
           }
         );
       }
@@ -961,14 +1191,18 @@ a{
 
       try {
 
-        await ensureDB(env);
+        await ensureDB(
+          env
+        );
 
 
         let hours =
           Number(
-            url.searchParams.get(
-              "hours"
-            ) || 6
+            url.searchParams
+              .get(
+                "hours"
+              ) ||
+            6
           );
 
 
@@ -977,10 +1211,13 @@ a{
             6,
             24,
             240
-          ].includes(hours)
+          ].includes(
+            hours
+          )
         ) {
 
-          hours = 6;
+          hours =
+            6;
         }
 
 
@@ -1001,30 +1238,41 @@ a{
                  water,
                  flow,
                  temp
+
                FROM measurements
-               WHERE ts >= ?
-               ORDER BY ts ASC`
+
+               WHERE
+                 ts >= ?
+
+               ORDER BY
+                 ts ASC`
             )
-            .bind(cutoff)
+            .bind(
+              cutoff
+            )
             .all();
 
 
         return new Response(
-          JSON.stringify({
-            ok: true,
-            version: VERSION,
+          JSON.stringify(
+            {
+              ok:
+                true,
 
-            count:
-              result.results?.length ||
-              0,
+              version:
+                VERSION,
 
-            data:
-              result.results ||
-              []
-          }),
+              count:
+                result.results
+                  ?.length ||
+                0,
+
+              data:
+                result.results ||
+                []
+            }
+          ),
           {
-            status: 200,
-
             headers: {
 
               "content-type":
@@ -1040,17 +1288,23 @@ a{
       } catch (error) {
 
         return new Response(
-          JSON.stringify({
-            ok: false,
-            version: VERSION,
-            data: [],
-            error:
-              error?.message ||
-              String(error)
-          }),
-          {
-            status: 200,
+          JSON.stringify(
+            {
+              ok:
+                false,
 
+              version:
+                VERSION,
+
+              data:
+                [],
+
+              error:
+                error?.message ||
+                String(error)
+            }
+          ),
+          {
             headers: {
 
               "content-type":
@@ -1066,7 +1320,7 @@ a{
 
 
     // ========================================================
-    // FŐOLDAL
+    // AKTUÁLIS ADATOK
     // ========================================================
 
     const data =
@@ -1089,15 +1343,25 @@ a{
 
 
     const {
+
       blocks,
+
       total,
+
       water,
+
       flow,
+
       temp,
+
       oahTime,
+
       riverTime,
+
       oahStatus,
+
       riverStatus
+
     } = data;
 
 
@@ -1106,37 +1370,57 @@ a{
     // ========================================================
 
     const totalText =
-      Number.isFinite(total)
+      Number.isFinite(
+        total
+      )
         ? `${total} MW`
         : "— MW";
 
 
     const waterText =
-      Number.isFinite(water)
+      Number.isFinite(
+        water
+      )
         ? `${water} cm`
         : "— cm";
 
 
     const flowText =
-      Number.isFinite(flow)
+      Number.isFinite(
+        flow
+      )
         ? `${fmt1(flow)} m³/s`
         : "— m³/s";
 
 
     const tempText =
-      Number.isFinite(temp)
+      Number.isFinite(
+        temp
+      )
         ? `${fmt1(temp)} °C`
         : "— °C";
 
 
+    const outletTempText =
+      Number.isFinite(
+        OUTLET_TEMP
+      )
+        ? `${fmt1(OUTLET_TEMP)} °C`
+        : "— °C";
+
+
     const shutdownDistance =
-      Number.isFinite(water)
+      Number.isFinite(
+        water
+      )
         ? water + 134
         : null;
 
 
     const safetyDistance =
-      Number.isFinite(water)
+      Number.isFinite(
+        water
+      )
         ? water + 144
         : null;
 
@@ -1148,12 +1432,15 @@ a{
     let riverClass =
       "normal";
 
+
     let riverLabel =
       "NORMÁL TARTOMÁNY";
 
 
     if (
-      Number.isFinite(water)
+      Number.isFinite(
+        water
+      )
     ) {
 
       if (
@@ -1163,8 +1450,10 @@ a{
         riverClass =
           "danger";
 
+
         riverLabel =
           "KRITIKUS VÍZSZINT";
+
 
       } else if (
         water <= -134
@@ -1173,8 +1462,10 @@ a{
         riverClass =
           "warning";
 
+
         riverLabel =
           "LEÁLLÁSI TARTOMÁNY";
+
 
       } else if (
         water <= -129
@@ -1183,21 +1474,28 @@ a{
         riverClass =
           "warning";
 
+
         riverLabel =
           "FIGYELMEZTETÉS";
       }
     }
 
 
-    let markerPct = 0;
+    let markerPct =
+      0;
 
 
     if (
-      Number.isFinite(water)
+      Number.isFinite(
+        water
+      )
     ) {
 
       markerPct =
-        ((-110 - water) / 40) *
+        (
+          (-110 - water) /
+          40
+        ) *
         100;
 
 
@@ -1216,7 +1514,9 @@ a{
     // HTML
     // ========================================================
 
-    const html = `<!doctype html>
+    const html =
+`<!doctype html>
+
 <html lang="hu">
 
 <head>
@@ -1243,9 +1543,15 @@ a{
   content="black"
 >
 
-<title>⚛️ PAKS AKTUÁLIS ADATOK</title>
+<title>
+  ⚛️ PAKS AKTUÁLIS ADATOK
+</title>
 
-<meta property="og:type" content="website">
+
+<meta
+  property="og:type"
+  content="website"
+>
 
 <meta
   property="og:title"
@@ -1254,7 +1560,7 @@ a{
 
 <meta
   property="og:description"
-  content="Paksi Atomerőmű • Duna vízállás • vízhozam • vízhőmérséklet • élő adatok"
+  content="Paksi Atomerőmű • Duna vízállás • vízhozam • vízhőmérséklet • kilépő vízhő"
 >
 
 <meta
@@ -1291,28 +1597,60 @@ a{
 <style>
 
 :root{
-  --bg:#030812;
-  --panel:#07111d;
-  --panel2:#0c1825;
-  --border:#1b3b57;
-  --white:#f6f8fb;
-  --muted:#8f9daf;
-  --green:#66df57;
-  --blue:#49a9ff;
-  --orange:#ffad30;
-  --red:#ff5c61;
-  --purple:#bf4cff;
+
+  --bg:
+    #030812;
+
+  --panel:
+    #07111d;
+
+  --panel2:
+    #0c1825;
+
+  --border:
+    #1b3b57;
+
+  --white:
+    #f6f8fb;
+
+  --muted:
+    #8f9daf;
+
+  --green:
+    #66df57;
+
+  --blue:
+    #49a9ff;
+
+  --orange:
+    #ffad30;
+
+  --red:
+    #ff5c61;
+
+  --purple:
+    #bf4cff;
 }
 
+
 *{
-  box-sizing:border-box;
+  box-sizing:
+    border-box;
 }
+
 
 html,
 body{
-  margin:0;
-  width:100%;
-  min-height:100%;
+
+  margin:
+    0;
+
+  width:
+    100%;
+
+  min-height:
+    100%;
+
   background:
     radial-gradient(
       circle at 50% -10%,
@@ -1320,7 +1658,10 @@ body{
       #040b14 35%,
       #02060b 75%
     );
-  color:var(--white);
+
+  color:
+    var(--white);
+
   font-family:
     -apple-system,
     BlinkMacSystemFont,
@@ -1329,34 +1670,77 @@ body{
     sans-serif;
 }
 
+
 body{
-  min-height:100vh;
+
+  min-height:
+    100vh;
 }
+
 
 .app{
-  width:min(100%,520px);
-  margin:auto;
+
+  width:
+    min(
+      100%,
+      520px
+    );
+
+  margin:
+    auto;
+
   padding:
-    max(8px,env(safe-area-inset-top))
+    max(
+      8px,
+      env(safe-area-inset-top)
+    )
     9px
-    max(7px,env(safe-area-inset-bottom));
+    max(
+      7px,
+      env(safe-area-inset-bottom)
+    );
 }
+
 
 .header{
-  display:grid;
-  grid-template-columns:auto 1fr auto;
-  align-items:center;
-  gap:8px;
-  margin-bottom:7px;
+
+  display:
+    grid;
+
+  grid-template-columns:
+    auto 1fr auto;
+
+  align-items:
+    center;
+
+  gap:
+    8px;
+
+  margin-bottom:
+    7px;
 }
 
+
 .logo{
-  width:40px;
-  height:40px;
-  border-radius:12px;
-  display:grid;
-  place-items:center;
-  font-size:24px;
+
+  width:
+    40px;
+
+  height:
+    40px;
+
+  border-radius:
+    12px;
+
+  display:
+    grid;
+
+  place-items:
+    center;
+
+  font-size:
+    24px;
+
   background:
     linear-gradient(
       145deg,
@@ -1365,212 +1749,514 @@ body{
     );
 }
 
+
 .title{
-  font-size:20px;
-  line-height:.98;
-  font-weight:950;
-  letter-spacing:-.6px;
+
+  font-size:
+    20px;
+
+  line-height:
+    .98;
+
+  font-weight:
+    950;
+
+  letter-spacing:
+    -.6px;
 }
+
 
 .live{
-  display:flex;
-  align-items:center;
-  gap:5px;
-  padding:5px 8px;
-  border-radius:999px;
-  background:#0c2111;
-  border:1px solid #275a31;
-  color:#73e66a;
-  font-size:9px;
-  font-weight:900;
+
+  display:
+    flex;
+
+  align-items:
+    center;
+
+  gap:
+    5px;
+
+  padding:
+    5px 8px;
+
+  border-radius:
+    999px;
+
+  background:
+    #0c2111;
+
+  border:
+    1px solid #275a31;
+
+  color:
+    #73e66a;
+
+  font-size:
+    9px;
+
+  font-weight:
+    900;
 }
+
 
 .liveDot{
-  width:7px;
-  height:7px;
-  border-radius:50%;
-  background:#73e66a;
-  box-shadow:0 0 8px #73e66a;
+
+  width:
+    7px;
+
+  height:
+    7px;
+
+  border-radius:
+    50%;
+
+  background:
+    #73e66a;
+
+  box-shadow:
+    0 0 8px #73e66a;
 }
 
+
 .card{
+
   background:
     linear-gradient(
       145deg,
       #09131f,
       #06101a
     );
-  border:1px solid var(--border);
-  border-radius:17px;
-  overflow:hidden;
-  margin-bottom:7px;
+
+  border:
+    1px solid var(--border);
+
+  border-radius:
+    17px;
+
+  overflow:
+    hidden;
+
+  margin-bottom:
+    7px;
 }
+
 
 .inner{
-  padding:10px;
+
+  padding:
+    10px;
 }
+
 
 .cardTitle{
-  color:#a5b1bf;
-  font-size:10px;
-  letter-spacing:.55px;
-  font-weight:850;
+
+  color:
+    #a5b1bf;
+
+  font-size:
+    10px;
+
+  letter-spacing:
+    .55px;
+
+  font-weight:
+    850;
 }
+
 
 .mainRow{
-  display:flex;
-  align-items:flex-end;
-  justify-content:space-between;
-  gap:10px;
-  margin:4px 0 7px;
+
+  display:
+    flex;
+
+  align-items:
+    flex-end;
+
+  justify-content:
+    space-between;
+
+  gap:
+    10px;
+
+  margin:
+    4px 0 7px;
 }
+
 
 .big{
-  font-size:40px;
-  line-height:.95;
-  letter-spacing:-1.5px;
-  font-weight:950;
+
+  font-size:
+    40px;
+
+  line-height:
+    .95;
+
+  letter-spacing:
+    -1.5px;
+
+  font-weight:
+    950;
 }
+
 
 .power{
-  color:var(--green);
+
+  color:
+    var(--green);
 }
+
 
 .water{
-  color:var(--blue);
+
+  color:
+    var(--blue);
 }
+
 
 .caption{
-  padding-bottom:3px;
-  color:#78879a;
-  font-size:8px;
+
+  padding-bottom:
+    3px;
+
+  color:
+    #78879a;
+
+  font-size:
+    8px;
 }
+
 
 .status{
-  padding-bottom:3px;
-  font-size:9px;
-  font-weight:900;
+
+  padding-bottom:
+    3px;
+
+  font-size:
+    9px;
+
+  font-weight:
+    900;
 }
+
 
 .normal{
-  color:var(--green);
+
+  color:
+    var(--green);
 }
+
 
 .warning{
-  color:var(--orange);
+
+  color:
+    var(--orange);
 }
+
 
 .danger{
-  color:var(--red);
+
+  color:
+    var(--red);
 }
+
 
 .chartBox{
-  margin-bottom:7px;
-  padding:7px 7px 4px;
-  background:#050e18;
-  border:1px solid #132b40;
-  border-radius:11px;
+
+  margin-bottom:
+    7px;
+
+  padding:
+    7px 7px 4px;
+
+  background:
+    #050e18;
+
+  border:
+    1px solid #132b40;
+
+  border-radius:
+    11px;
 }
+
 
 .chartTop{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:6px;
-  margin-bottom:4px;
+
+  display:
+    flex;
+
+  align-items:
+    center;
+
+  justify-content:
+    space-between;
+
+  gap:
+    6px;
+
+  margin-bottom:
+    4px;
 }
+
 
 .chartTitle{
-  color:#8f9eb1;
-  font-size:7px;
-  font-weight:800;
+
+  color:
+    #8f9eb1;
+
+  font-size:
+    7px;
+
+  font-weight:
+    800;
 }
+
 
 .periods{
-  display:flex;
-  gap:3px;
+
+  display:
+    flex;
+
+  gap:
+    3px;
 }
+
 
 .periodButton{
-  border:0;
-  padding:3px 6px;
-  border-radius:999px;
-  background:#111e2b;
-  color:#8394a8;
-  font-size:7px;
-  font-weight:850;
+
+  border:
+    0;
+
+  padding:
+    3px 6px;
+
+  border-radius:
+    999px;
+
+  background:
+    #111e2b;
+
+  color:
+    #8394a8;
+
+  font-size:
+    7px;
+
+  font-weight:
+    850;
 }
+
 
 .periodButton.active{
-  color:white;
-  background:#234663;
+
+  color:
+    white;
+
+  background:
+    #234663;
 }
+
 
 .chartWrap{
-  position:relative;
-  width:100%;
-  height:92px;
+
+  position:
+    relative;
+
+  width:
+    100%;
+
+  height:
+    92px;
 }
+
 
 canvas{
-  display:block;
-  width:100%;
-  height:100%;
+
+  display:
+    block;
+
+  width:
+    100%;
+
+  height:
+    100%;
 }
+
 
 .blocks{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:5px;
+
+  display:
+    grid;
+
+  grid-template-columns:
+    1fr 1fr;
+
+  gap:
+    5px;
 }
+
 
 .block{
-  padding:6px 8px;
-  background:var(--panel2);
-  border-radius:9px;
-  border:1px solid #142b3f;
+
+  padding:
+    6px 8px;
+
+  background:
+    var(--panel2);
+
+  border-radius:
+    9px;
+
+  border:
+    1px solid #142b3f;
 }
+
 
 .blockName{
-  color:#8c9bad;
-  font-size:7px;
+
+  color:
+    #8c9bad;
+
+  font-size:
+    7px;
 }
+
 
 .blockValue{
-  margin-top:2px;
-  font-size:17px;
-  line-height:1;
-  font-weight:900;
+
+  margin-top:
+    2px;
+
+  font-size:
+    17px;
+
+  line-height:
+    1;
+
+  font-weight:
+    900;
 }
+
+
+/*
+  VÍZHOZAM
+  DUNA VÍZHŐ
+  KILÉPŐ VÍZ HŐ
+*/
 
 .metrics{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:5px;
+
+  display:
+    grid;
+
+  grid-template-columns:
+    repeat(
+      3,
+      1fr
+    );
+
+  gap:
+    5px;
 }
+
 
 .metric{
-  padding:6px 8px;
-  border-radius:9px;
-  background:var(--panel2);
+
+  min-width:
+    0;
+
+  padding:
+    6px 7px;
+
+  border-radius:
+    9px;
+
+  background:
+    var(--panel2);
 }
+
 
 .metricName{
-  color:#8c9bad;
-  font-size:7px;
+
+  color:
+    #8c9bad;
+
+  font-size:
+    6.5px;
+
+  white-space:
+    nowrap;
 }
+
 
 .metricValue{
-  margin-top:2px;
-  font-size:16px;
-  font-weight:900;
+
+  margin-top:
+    2px;
+
+  font-size:
+    14px;
+
+  font-weight:
+    900;
+
+  white-space:
+    nowrap;
 }
 
+
+.outletValue{
+
+  color:
+    var(--orange);
+}
+
+
+.tempRule{
+
+  margin-top:
+    5px;
+
+  padding:
+    5px 7px;
+
+  border:
+    1px solid #604718;
+
+  border-radius:
+    8px;
+
+  background:
+    #171209;
+
+  color:
+    #ffb641;
+
+  text-align:
+    center;
+
+  font-size:
+    7px;
+
+  font-weight:
+    900;
+}
+
+
 .gauge{
-  position:relative;
-  height:9px;
-  border-radius:999px;
-  margin-top:7px;
+
+  position:
+    relative;
+
+  height:
+    9px;
+
+  border-radius:
+    999px;
+
+  margin-top:
+    7px;
+
   background:
     linear-gradient(
       90deg,
@@ -1583,191 +2269,432 @@ canvas{
     );
 }
 
+
 .marker{
-  position:absolute;
-  left:${markerPct}%;
-  top:-5px;
-  width:3px;
-  height:19px;
-  border-radius:2px;
-  background:#fff;
-  transform:translateX(-50%);
-  box-shadow:0 0 6px #fff;
+
+  position:
+    absolute;
+
+  left:
+    ${markerPct}%;
+
+  top:
+    -5px;
+
+  width:
+    3px;
+
+  height:
+    19px;
+
+  border-radius:
+    2px;
+
+  background:
+    #fff;
+
+  transform:
+    translateX(-50%);
+
+  box-shadow:
+    0 0 6px #fff;
 }
+
 
 .scale{
-  display:grid;
-  grid-template-columns:1fr 1fr 1fr;
-  margin-top:3px;
-  font-size:7px;
+
+  display:
+    grid;
+
+  grid-template-columns:
+    1fr 1fr 1fr;
+
+  margin-top:
+    3px;
+
+  font-size:
+    7px;
 }
+
 
 .scale span:nth-child(1){
-  color:#7e8c9d;
+
+  color:
+    #7e8c9d;
 }
+
 
 .scale span:nth-child(2){
-  text-align:center;
-  color:var(--orange);
+
+  text-align:
+    center;
+
+  color:
+    var(--orange);
 }
+
 
 .scale span:nth-child(3){
-  text-align:right;
-  color:var(--red);
+
+  text-align:
+    right;
+
+  color:
+    var(--red);
 }
+
 
 .distances{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:5px;
-  margin-top:5px;
+
+  display:
+    grid;
+
+  grid-template-columns:
+    1fr 1fr;
+
+  gap:
+    5px;
+
+  margin-top:
+    5px;
 }
+
 
 .distance{
-  padding:5px 7px;
-  border-radius:9px;
-  background:var(--panel2);
+
+  padding:
+    5px 7px;
+
+  border-radius:
+    9px;
+
+  background:
+    var(--panel2);
 }
+
 
 .distanceValue{
-  font-size:13px;
-  font-weight:950;
+
+  font-size:
+    13px;
+
+  font-weight:
+    950;
 }
+
 
 .distanceLabel{
-  color:#78889b;
-  font-size:6px;
+
+  color:
+    #78889b;
+
+  font-size:
+    6px;
 }
+
 
 .source{
-  padding:5px 10px;
-  border-top:1px solid #172e42;
-  color:#718296;
-  font-size:7px;
+
+  padding:
+    5px 10px;
+
+  border-top:
+    1px solid #172e42;
+
+  color:
+    #718296;
+
+  font-size:
+    7px;
 }
+
 
 .bottom{
-  display:grid;
-  grid-template-columns:.55fr 1.55fr;
-  gap:5px;
+
+  display:
+    grid;
+
+  grid-template-columns:
+    .55fr 1.55fr;
+
+  gap:
+    5px;
 }
+
 
 .signature{
-  display:grid;
-  place-items:center;
-  min-height:43px;
-  border:1px solid #3e2255;
-  border-radius:11px;
-  background:#100817;
-  color:var(--purple);
-  font-size:12px;
-  font-weight:950;
-  letter-spacing:2px;
+
+  display:
+    grid;
+
+  place-items:
+    center;
+
+  min-height:
+    43px;
+
+  border:
+    1px solid #3e2255;
+
+  border-radius:
+    11px;
+
+  background:
+    #100817;
+
+  color:
+    var(--purple);
+
+  font-size:
+    12px;
+
+  font-weight:
+    950;
+
+  letter-spacing:
+    2px;
 }
+
 
 .share{
-  min-width:0;
-  border:1px solid #17334a;
-  border-radius:11px;
-  background:#07111c;
-  padding:5px;
+
+  min-width:
+    0;
+
+  border:
+    1px solid #17334a;
+
+  border-radius:
+    11px;
+
+  background:
+    #07111c;
+
+  padding:
+    5px;
 }
+
 
 .shareTitle{
-  color:#8494a7;
-  font-size:7px;
-  margin-bottom:3px;
+
+  color:
+    #8494a7;
+
+  font-size:
+    7px;
+
+  margin-bottom:
+    3px;
 }
+
 
 .shareRow{
-  display:grid;
-  grid-template-columns:1fr 57px;
-  gap:4px;
+
+  display:
+    grid;
+
+  grid-template-columns:
+    1fr 57px;
+
+  gap:
+    4px;
 }
+
 
 .url{
-  min-width:0;
-  height:25px;
-  display:flex;
-  align-items:center;
-  padding:0 6px;
-  border:1px solid #9e38cf;
-  border-radius:7px;
-  background:#180b20;
-  color:#d353ff;
-  font-size:6.5px;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  text-decoration:none;
+
+  min-width:
+    0;
+
+  height:
+    25px;
+
+  display:
+    flex;
+
+  align-items:
+    center;
+
+  padding:
+    0 6px;
+
+  border:
+    1px solid #9e38cf;
+
+  border-radius:
+    7px;
+
+  background:
+    #180b20;
+
+  color:
+    #d353ff;
+
+  font-size:
+    6.5px;
+
+  white-space:
+    nowrap;
+
+  overflow:
+    hidden;
+
+  text-overflow:
+    ellipsis;
+
+  text-decoration:
+    none;
 }
+
 
 .copy{
-  height:25px;
-  border:0;
-  border-radius:7px;
-  background:#142130;
-  color:white;
-  font-size:7px;
-  font-weight:900;
+
+  height:
+    25px;
+
+  border:
+    0;
+
+  border-radius:
+    7px;
+
+  background:
+    #142130;
+
+  color:
+    white;
+
+  font-size:
+    7px;
+
+  font-weight:
+    900;
 }
+
 
 .version{
-  margin-top:6px;
-  text-align:center;
-  color:#405268;
-  font-size:6px;
-  letter-spacing:1px;
+
+  margin-top:
+    6px;
+
+  text-align:
+    center;
+
+  color:
+    #405268;
+
+  font-size:
+    6px;
+
+  letter-spacing:
+    1px;
 }
 
+
 .toast{
-  position:fixed;
-  left:50%;
-  bottom:20px;
+
+  position:
+    fixed;
+
+  left:
+    50%;
+
+  bottom:
+    20px;
+
   transform:
     translateX(-50%)
     translateY(10px);
-  opacity:0;
-  padding:7px 12px;
-  border-radius:999px;
-  background:#102819;
-  border:1px solid #347b41;
-  color:#7bea70;
-  font-size:10px;
-  font-weight:850;
-  transition:.2s;
-  pointer-events:none;
+
+  opacity:
+    0;
+
+  padding:
+    7px 12px;
+
+  border-radius:
+    999px;
+
+  background:
+    #102819;
+
+  border:
+    1px solid #347b41;
+
+  color:
+    #7bea70;
+
+  font-size:
+    10px;
+
+  font-weight:
+    850;
+
+  transition:
+    .2s;
+
+  pointer-events:
+    none;
 }
 
+
 .toast.show{
-  opacity:1;
+
+  opacity:
+    1;
+
   transform:
     translateX(-50%)
     translateY(0);
 }
 
-@media(min-width:800px){
+
+@media(
+  min-width:
+  800px
+){
 
   .app{
-    width:min(1200px,96vw);
+
+    width:
+      min(
+        1200px,
+        96vw
+      );
   }
+
 
   .cards{
-    display:grid;
-    grid-template-columns:1fr 1fr;
-    gap:12px;
+
+    display:
+      grid;
+
+    grid-template-columns:
+      1fr 1fr;
+
+    gap:
+      12px;
   }
+
 
   .card{
-    margin-bottom:0;
+
+    margin-bottom:
+      0;
   }
+
 
   .chartWrap{
-    height:180px;
+
+    height:
+      180px;
   }
 
+
   .big{
-    font-size:70px;
+
+    font-size:
+      70px;
   }
 }
 
@@ -1775,24 +2702,34 @@ canvas{
 
 </head>
 
+
 <body>
+
 
 <div class="app">
 
+
   <div class="header">
+
 
     <div class="logo">
       ⚛️
     </div>
 
+
     <div class="title">
       PAKS AKTUÁLIS ADATOK
     </div>
 
+
     <div class="live">
+
       <span class="liveDot"></span>
+
       ÉLŐ
+
     </div>
+
 
   </div>
 
@@ -1804,9 +2741,12 @@ canvas{
          PAKS
     ==================================================== -->
 
+
     <div class="card">
 
+
       <div class="inner">
+
 
         <div class="cardTitle">
           PAKSI ATOMERŐMŰ TELJESÍTMÉNYE
@@ -1815,26 +2755,33 @@ canvas{
 
         <div class="mainRow">
 
+
           <div class="big power">
             ${totalText}
           </div>
 
+
           <div class="caption">
             ÖSSZTELJESÍTMÉNY
           </div>
+
 
         </div>
 
 
         <div class="chartBox">
 
+
           <div class="chartTop">
+
 
             <div class="chartTitle">
               TELJESÍTMÉNY VÁLTOZÁSA • MW
             </div>
 
+
             <div class="periods">
+
 
               <button
                 class="periodButton active"
@@ -1844,6 +2791,7 @@ canvas{
                 6 ÓRA
               </button>
 
+
               <button
                 class="periodButton"
                 data-chart="power"
@@ -1851,6 +2799,7 @@ canvas{
               >
                 24 ÓRA
               </button>
+
 
               <button
                 class="periodButton"
@@ -1860,61 +2809,93 @@ canvas{
                 10 NAP
               </button>
 
+
             </div>
+
 
           </div>
 
 
           <div class="chartWrap">
-            <canvas id="powerChart"></canvas>
+
+            <canvas
+              id="powerChart"
+            ></canvas>
+
           </div>
+
 
         </div>
 
 
         <div class="blocks">
 
+
           ${blocks.map(
-            (value, index) => `
+            (
+              value,
+              index
+            ) => `
+
               <div class="block">
 
+
                 <div class="blockName">
+
                   ${index + 1}. BLOKK
+
                 </div>
 
+
                 <div class="blockValue">
+
                   ${
                     value === "—"
                       ? "—"
-                      : value + " MW"
+                      : value +
+                        " MW"
                   }
+
                 </div>
 
+
               </div>
+
             `
           ).join("")}
 
+
         </div>
+
 
       </div>
 
 
       <div class="source">
+
         OAH •
+
         ${shortTime(oahTime)} •
+
         ${oahStatus}
+
       </div>
 
+
     </div>
+
 
 
     <!-- ===================================================
          DUNA
     ==================================================== -->
 
+
     <div class="card">
 
+
       <div class="inner">
+
 
         <div class="cardTitle">
           🌊 DUNA VÍZÁLLÁSA PAKSNÁL
@@ -1923,26 +2904,35 @@ canvas{
 
         <div class="mainRow">
 
+
           <div class="big water">
             ${waterText}
           </div>
 
-          <div class="status ${riverClass}">
+
+          <div
+            class="status ${riverClass}"
+          >
             ${riverLabel}
           </div>
+
 
         </div>
 
 
         <div class="chartBox">
 
+
           <div class="chartTop">
+
 
             <div class="chartTitle">
               VÍZÁLLÁS VÁLTOZÁSA • CM
             </div>
 
+
             <div class="periods">
+
 
               <button
                 class="periodButton active"
@@ -1952,6 +2942,7 @@ canvas{
                 6 ÓRA
               </button>
 
+
               <button
                 class="periodButton"
                 data-chart="water"
@@ -1959,6 +2950,7 @@ canvas{
               >
                 24 ÓRA
               </button>
+
 
               <button
                 class="periodButton"
@@ -1968,80 +2960,154 @@ canvas{
                 10 NAP
               </button>
 
+
             </div>
+
 
           </div>
 
 
           <div class="chartWrap">
-            <canvas id="waterChart"></canvas>
+
+            <canvas
+              id="waterChart"
+            ></canvas>
+
           </div>
+
 
         </div>
 
 
+
+        <!-- =================================================
+             3 ADAT EGY SORBAN
+        ================================================== -->
+
+
         <div class="metrics">
 
+
           <div class="metric">
+
 
             <div class="metricName">
               VÍZHOZAM
             </div>
 
+
             <div class="metricValue">
               ${flowText}
             </div>
 
+
           </div>
+
 
 
           <div class="metric">
 
+
             <div class="metricName">
-              VÍZHŐMÉRSÉKLET
+              DUNA VÍZHŐ
             </div>
+
 
             <div class="metricValue">
               ${tempText}
             </div>
 
+
           </div>
+
+
+
+          <div class="metric">
+
+
+            <div class="metricName">
+              KILÉPŐ VÍZ HŐ
+            </div>
+
+
+            <div
+              class="metricValue outletValue"
+            >
+              ${outletTempText}
+            </div>
+
+
+          </div>
+
 
         </div>
 
 
+
+        <!-- =================================================
+             HŐMÉRSÉKLETI INFORMÁCIÓ
+        ================================================== -->
+
+
+        <div class="tempRule">
+
+          MVM ${OUTLET_TEMP_DATE}
+
+          • 29,5 °C BEAVATKOZÁSI SZINT
+
+          • +0,1 °C → −80 MW
+
+        </div>
+
+
+
+        <!-- =================================================
+             VÍZSZINT SKÁLA
+        ================================================== -->
+
+
         <div class="gauge">
+
 
           <div
             class="marker"
             style="left:${markerPct}%"
           ></div>
 
+
         </div>
 
 
         <div class="scale">
 
+
           <span>
             NORMÁL
           </span>
+
 
           <span>
             −134 CM
           </span>
 
+
           <span>
             −144 CM
           </span>
 
+
         </div>
+
 
 
         <div class="distances">
 
+
           <div class="distance">
 
+
             <div class="distanceValue">
+
               ${
                 Number.isFinite(
                   shutdownDistance
@@ -2050,18 +3116,24 @@ canvas{
                     " cm"
                   : "—"
               }
+
             </div>
+
 
             <div class="distanceLabel">
               LEÁLLÁSI KÜSZÖBIG
             </div>
 
+
           </div>
+
 
 
           <div class="distance">
 
+
             <div class="distanceValue">
+
               ${
                 Number.isFinite(
                   safetyDistance
@@ -2070,107 +3142,158 @@ canvas{
                     " cm"
                   : "—"
               }
+
             </div>
+
 
             <div class="distanceLabel">
               BIZTONSÁGI HATÁRIG
             </div>
 
+
           </div>
+
 
         </div>
 
+
       </div>
+
 
 
       <div class="source">
+
         VÍZÜGY •
+
         ${shortTime(riverTime)} •
+
         ${riverStatus}
+
+        &nbsp; • &nbsp;
+
+        KILÉPŐ VÍZ: MVM
+
       </div>
+
 
     </div>
 
+
   </div>
+
 
 
   <!-- =====================================================
        ALSÓ RÉSZ
   ====================================================== -->
 
+
   <div class="bottom">
 
+
     <div class="signature">
+
       IGLÓDI
+
     </div>
+
 
 
     <div class="share">
 
+
       <div class="shareTitle">
+
         🔗 PARANCSIKON / MEGOSZTÁS
+
       </div>
 
 
+
       <div class="shareRow">
+
 
         <a
           class="url"
           href="${PUBLIC_URL}"
         >
+
           ${PUBLIC_URL}
+
         </a>
+
 
 
         <button
           class="copy"
           id="copyButton"
         >
+
           MÁSOLÁS
+
         </button>
+
 
       </div>
 
+
     </div>
 
+
   </div>
+
 
 
   <div class="version">
+
     ${VERSION}
+
   </div>
 
+
 </div>
+
 
 
 <div
   id="toast"
   class="toast"
 >
+
   Link másolva
+
 </div>
 
 
+
 <script>
+
 
 const PUBLIC_URL =
   "${PUBLIC_URL}";
 
 
 let selectedRange = {
-  power: 6,
-  water: 6
+
+  power:
+    6,
+
+  water:
+    6
 };
 
 
-let cache = {};
+let cache =
+  {};
 
 
 // ============================================================
 // HISTORY
 // ============================================================
 
-async function getHistory(hours) {
+async function getHistory(
+  hours
+) {
 
   try {
 
@@ -2181,7 +3304,8 @@ async function getHistory(hours) {
         "&v=" +
         Date.now(),
         {
-          cache: "no-store"
+          cache:
+            "no-store"
         }
       );
 
@@ -2193,11 +3317,16 @@ async function getHistory(hours) {
     if (
       json &&
       json.ok === true &&
-      Array.isArray(json.data)
+      Array.isArray(
+        json.data
+      )
     ) {
 
-      return json.data;
+      return (
+        json.data
+      );
     }
+
 
   } catch {}
 
@@ -2210,13 +3339,20 @@ async function loadHistory(
   hours
 ) {
 
-  if (cache[hours]) {
-    return cache[hours];
+  if (
+    cache[hours]
+  ) {
+
+    return (
+      cache[hours]
+    );
   }
 
 
   const data =
-    await getHistory(hours);
+    await getHistory(
+      hours
+    );
 
 
   cache[hours] =
@@ -2244,7 +3380,10 @@ async function drawChart(
     );
 
 
-  if (!canvas) {
+  if (
+    !canvas
+  ) {
+
     return;
   }
 
@@ -2264,23 +3403,39 @@ async function drawChart(
       )
       .map(
         row => ({
-          x: Number(row.ts),
-          y: Number(row[field])
+          x:
+            Number(
+              row.ts
+            ),
+
+          y:
+            Number(
+              row[field]
+            )
         })
       )
       .filter(
         point =>
-          Number.isFinite(point.x) &&
-          Number.isFinite(point.y)
+          Number.isFinite(
+            point.x
+          ) &&
+          Number.isFinite(
+            point.y
+          )
       )
       .sort(
-        (a, b) =>
-          a.x - b.x
+        (
+          a,
+          b
+        ) =>
+          a.x -
+          b.x
       );
 
 
   const rect =
-    canvas.getBoundingClientRect();
+    canvas
+      .getBoundingClientRect();
 
 
   const ratio =
@@ -2292,7 +3447,8 @@ async function drawChart(
     Math.max(
       1,
       Math.floor(
-        rect.width * ratio
+        rect.width *
+        ratio
       )
     );
 
@@ -2301,7 +3457,8 @@ async function drawChart(
     Math.max(
       1,
       Math.floor(
-        rect.height * ratio
+        rect.height *
+        ratio
       )
     );
 
@@ -2325,6 +3482,7 @@ async function drawChart(
   const W =
     rect.width;
 
+
   const H =
     rect.height;
 
@@ -2338,10 +3496,18 @@ async function drawChart(
 
 
   const pad = {
-    left: 38,
-    right: 8,
-    top: 8,
-    bottom: 20
+
+    left:
+      38,
+
+    right:
+      8,
+
+    top:
+      8,
+
+    bottom:
+      20
   };
 
 
@@ -2364,7 +3530,9 @@ async function drawChart(
   ctx.strokeStyle =
     "rgba(115,145,170,.18)";
 
-  ctx.lineWidth = 1;
+
+  ctx.lineWidth =
+    1;
 
 
   for (
@@ -2376,43 +3544,55 @@ async function drawChart(
     const y =
       pad.top +
       chartH *
-      i / 4;
+      i /
+      4;
 
 
     ctx.beginPath();
+
 
     ctx.moveTo(
       pad.left,
       y
     );
 
+
     ctx.lineTo(
-      W - pad.right,
+      W -
+      pad.right,
       y
     );
+
 
     ctx.stroke();
   }
 
 
   if (
-    data.length === 0
+    data.length ===
+    0
   ) {
 
     ctx.fillStyle =
       "#718397";
 
+
     ctx.font =
       "10px -apple-system";
+
 
     ctx.textAlign =
       "left";
 
+
     ctx.fillText(
       "Új valódi mérésre várunk…",
-      pad.left + 8,
-      H / 2
+      pad.left +
+      8,
+      H /
+      2
     );
+
 
     return;
   }
@@ -2425,7 +3605,8 @@ async function drawChart(
   let minY =
     Math.min(
       ...data.map(
-        p => p.y
+        point =>
+          point.y
       )
     );
 
@@ -2433,13 +3614,15 @@ async function drawChart(
   let maxY =
     Math.max(
       ...data.map(
-        p => p.y
+        point =>
+          point.y
       )
     );
 
 
   if (
-    minY === maxY
+    minY ===
+    maxY
   ) {
 
     const delta =
@@ -2447,26 +3630,39 @@ async function drawChart(
         ? 2
         : Math.max(
             1,
-            Math.abs(minY) *
+            Math.abs(
+              minY
+            ) *
             .02
           );
 
 
-    minY -= delta;
-    maxY += delta;
+    minY -=
+      delta;
+
+
+    maxY +=
+      delta;
   }
 
 
   const margin =
     Math.max(
       1,
-      (maxY - minY) *
+      (
+        maxY -
+        minY
+      ) *
       .15
     );
 
 
-  minY -= margin;
-  maxY += margin;
+  minY -=
+    margin;
+
+
+  maxY +=
+    margin;
 
 
   // ==========================================================
@@ -2485,22 +3681,36 @@ async function drawChart(
     1000;
 
 
-  const sx = x =>
-    pad.left +
-    (
-      (x - minX) /
-      (maxX - minX)
-    ) *
-    chartW;
+  const sx =
+    x =>
+      pad.left +
+      (
+        (
+          x -
+          minX
+        ) /
+        (
+          maxX -
+          minX
+        )
+      ) *
+      chartW;
 
 
-  const sy = y =>
-    pad.top +
-    (
-      (maxY - y) /
-      (maxY - minY)
-    ) *
-    chartH;
+  const sy =
+    y =>
+      pad.top +
+      (
+        (
+          maxY -
+          y
+        ) /
+        (
+          maxY -
+          minY
+        )
+      ) *
+      chartH;
 
 
   // ==========================================================
@@ -2510,8 +3720,10 @@ async function drawChart(
   ctx.fillStyle =
     "#708296";
 
+
   ctx.font =
     "8px -apple-system";
+
 
   ctx.textAlign =
     "right";
@@ -2526,23 +3738,32 @@ async function drawChart(
     const value =
       maxY -
       (
-        maxY - minY
+        maxY -
+        minY
       ) *
-      i / 2;
+      i /
+      2;
 
 
     const y =
       pad.top +
       chartH *
-      i / 2;
+      i /
+      2;
 
 
     ctx.fillText(
-      Math.round(value) +
+      Math.round(
+        value
+      ) +
       " " +
       unit,
-      pad.left - 4,
-      y + 3
+
+      pad.left -
+      4,
+
+      y +
+      3
     );
   }
 
@@ -2556,7 +3777,8 @@ async function drawChart(
 
 
   const divisions =
-    hours >= 240
+    hours >=
+    240
       ? 4
       : 3;
 
@@ -2567,47 +3789,64 @@ async function drawChart(
     i++
   ) {
 
-    const t =
+    const timestamp =
       minX +
       (
-        maxX - minX
+        maxX -
+        minX
       ) *
       i /
       divisions;
 
 
-    const d =
-      new Date(t);
+    const date =
+      new Date(
+        timestamp
+      );
 
 
     const label =
       hours >= 240
-        ? d.toLocaleDateString(
-            "hu-HU",
-            {
-              month: "2-digit",
-              day: "2-digit"
-            }
-          )
-        : d.toLocaleTimeString(
-            "hu-HU",
-            {
-              hour: "2-digit",
-              minute: "2-digit"
-            }
-          );
+
+        ? date
+            .toLocaleDateString(
+              "hu-HU",
+              {
+                month:
+                  "2-digit",
+
+                day:
+                  "2-digit"
+              }
+            )
+
+        : date
+            .toLocaleTimeString(
+              "hu-HU",
+              {
+                hour:
+                  "2-digit",
+
+                minute:
+                  "2-digit"
+              }
+            );
 
 
     ctx.fillText(
       label,
-      sx(t),
-      H - 5
+      sx(
+        timestamp
+      ),
+      H -
+      5
     );
   }
 
 
   const lineColor =
-    field === "power"
+    field ===
+    "power"
       ? "#66df57"
       : "#49a9ff";
 
@@ -2615,16 +3854,20 @@ async function drawChart(
   ctx.strokeStyle =
     lineColor;
 
+
   ctx.fillStyle =
     lineColor;
 
+
   ctx.lineWidth =
     2.2;
+
 
   ctx.lineJoin =
     field === "water"
       ? "miter"
       : "round";
+
 
   ctx.lineCap =
     field === "water"
@@ -2633,46 +3876,66 @@ async function drawChart(
 
 
   // ==========================================================
-  // EGYETLEN ADAT
+  // 1 MÉRÉSI PONT
   // ==========================================================
 
   if (
-    data.length === 1
+    data.length ===
+    1
   ) {
 
-    const p =
+    const point =
       data[0];
 
 
     ctx.beginPath();
 
+
     ctx.moveTo(
       Math.max(
         pad.left,
-        sx(p.x)
+        sx(
+          point.x
+        )
       ),
-      sy(p.y)
+      sy(
+        point.y
+      )
     );
 
+
     ctx.lineTo(
-      sx(maxX),
-      sy(p.y)
+      sx(
+        maxX
+      ),
+      sy(
+        point.y
+      )
     );
+
 
     ctx.stroke();
 
 
     ctx.beginPath();
 
+
     ctx.arc(
-      sx(maxX),
-      sy(p.y),
+      sx(
+        maxX
+      ),
+      sy(
+        point.y
+      ),
       3.5,
       0,
-      Math.PI * 2
+      Math.PI *
+      2
     );
 
+
     ctx.fill();
+
 
     return;
   }
@@ -2682,19 +3945,17 @@ async function drawChart(
 
 
   // ==========================================================
-  // DUNA
+  // DUNA – LÉPCSŐS
   //
-  // CSAK LÉPCSŐS:
+  // NINCS 5 PERCES FŰRÉSZ.
   //
-  // ─────────┐
-  //          │
-  //          └─────────
-  //
-  // NINCS FERDE VONAL.
+  // A VÍZÜGY ADATÁT VÍZSZINTESEN TARTJUK,
+  // ÉS CSAK AZ ÚJ HIVATALOS MÉRÉSI IDŐPONTBAN UGRIK.
   // ==========================================================
 
   if (
-    field === "water"
+    field ===
+    "water"
   ) {
 
     const first =
@@ -2702,12 +3963,16 @@ async function drawChart(
 
 
     let firstX =
-      sx(first.x);
+      sx(
+        first.x
+      );
 
 
     if (
-      firstX < pad.left
+      firstX <
+      pad.left
     ) {
+
       firstX =
         pad.left;
     }
@@ -2715,7 +3980,9 @@ async function drawChart(
 
     ctx.moveTo(
       firstX,
-      sy(first.y)
+      sy(
+        first.y
+      )
     );
 
 
@@ -2726,65 +3993,87 @@ async function drawChart(
     ) {
 
       const previous =
-        data[i - 1];
+        data[
+          i -
+          1
+        ];
+
 
       const current =
         data[i];
 
 
-      let currentX =
-        sx(current.x);
+      const currentX =
+        sx(
+          current.x
+        );
 
 
       if (
-        currentX < pad.left
+        currentX <
+        pad.left
       ) {
+
         continue;
       }
 
 
       if (
         currentX >
-        W - pad.right
+        W -
+        pad.right
       ) {
+
         break;
       }
 
 
-      // ------------------------------------------------------
-      // VÍZSZINTESEN TARTJUK AZ ELŐZŐ MÉRÉST
-      // ------------------------------------------------------
+      /*
+        Előző vízállás
+        vízszintesen az új mérésig.
+      */
 
       ctx.lineTo(
         currentX,
-        sy(previous.y)
+        sy(
+          previous.y
+        )
       );
 
 
-      // ------------------------------------------------------
-      // CSAK AZ ÚJ MÉRÉS IDŐPONTJÁBAN UGRIK
-      // ------------------------------------------------------
+      /*
+        Új időpontban
+        függőleges ugrás.
+      */
 
       ctx.lineTo(
         currentX,
-        sy(current.y)
+        sy(
+          current.y
+        )
       );
     }
 
 
     const last =
       data[
-        data.length - 1
+        data.length -
+        1
       ];
 
 
-    // --------------------------------------------------------
-    // LEGUTOLSÓ MÉRÉS → JELEN
-    // --------------------------------------------------------
+    /*
+      Legutolsó hivatalos
+      vízállás → jelen.
+    */
 
     ctx.lineTo(
-      sx(maxX),
-      sy(last.y)
+      sx(
+        maxX
+      ),
+      sy(
+        last.y
+      )
     );
 
 
@@ -2802,14 +4091,20 @@ async function drawChart(
       ) => {
 
         const x =
-          sx(point.x);
+          sx(
+            point.x
+          );
+
 
         const y =
-          sy(point.y);
+          sy(
+            point.y
+          );
 
 
         if (
-          index === 0
+          index ===
+          0
         ) {
 
           ctx.moveTo(
@@ -2838,23 +4133,37 @@ async function drawChart(
 
   const last =
     data[
-      data.length - 1
+      data.length -
+      1
     ];
 
 
   ctx.beginPath();
 
-  ctx.arc(
-    field === "water"
-      ? sx(maxX)
-      : sx(last.x),
 
-    sy(last.y),
+  ctx.arc(
+
+    field ===
+    "water"
+      ? sx(
+          maxX
+        )
+      : sx(
+          last.x
+        ),
+
+    sy(
+      last.y
+    ),
 
     3.5,
+
     0,
-    Math.PI * 2
+
+    Math.PI *
+    2
   );
+
 
   ctx.fill();
 }
@@ -2866,26 +4175,29 @@ async function drawChart(
 
 async function redraw() {
 
-  cache = {};
+  cache =
+    {};
 
 
-  await Promise.all([
+  await Promise.all(
+    [
 
-    drawChart(
-      "powerChart",
-      "power",
-      selectedRange.power,
-      "MW"
-    ),
+      drawChart(
+        "powerChart",
+        "power",
+        selectedRange.power,
+        "MW"
+      ),
 
-    drawChart(
-      "waterChart",
-      "water",
-      selectedRange.water,
-      "cm"
-    )
+      drawChart(
+        "waterChart",
+        "water",
+        selectedRange.water,
+        "cm"
+      )
 
-  ]);
+    ]
+  );
 }
 
 
@@ -2899,7 +4211,9 @@ function setRange(
   button
 ) {
 
-  selectedRange[chart] =
+  selectedRange[
+    chart
+  ] =
     hours;
 
 
@@ -2910,23 +4224,29 @@ function setRange(
       '"]'
     )
     .forEach(
-      item =>
-        item.classList.remove(
-          "active"
-        )
+      element =>
+        element
+          .classList
+          .remove(
+            "active"
+          )
     );
 
 
-  button.classList.add(
-    "active"
-  );
+  button
+    .classList
+    .add(
+      "active"
+    );
 
 
-  cache = {};
+  cache =
+    {};
 
 
   if (
-    chart === "power"
+    chart ===
+    "power"
   ) {
 
     drawChart(
@@ -2935,6 +4255,7 @@ function setRange(
       hours,
       "MW"
     );
+
 
   } else {
 
@@ -2964,10 +4285,17 @@ document
         () => {
 
           setRange(
-            button.dataset.chart,
+
+            button
+              .dataset
+              .chart,
+
             Number(
-              button.dataset.hours
+              button
+                .dataset
+                .hours
             ),
+
             button
           );
         }
@@ -2990,27 +4318,34 @@ document
 
       try {
 
-        await navigator.clipboard.writeText(
-          PUBLIC_URL
-        );
-
-
-        const toast =
-          document.getElementById(
-            "toast"
+        await navigator
+          .clipboard
+          .writeText(
+            PUBLIC_URL
           );
 
 
-        toast.classList.add(
-          "show"
-        );
+        const toast =
+          document
+            .getElementById(
+              "toast"
+            );
+
+
+        toast
+          .classList
+          .add(
+            "show"
+          );
 
 
         setTimeout(
           () =>
-            toast.classList.remove(
-              "show"
-            ),
+            toast
+              .classList
+              .remove(
+                "show"
+              ),
           1400
         );
 
@@ -3038,28 +4373,34 @@ window.addEventListener(
   () => {
 
     clearTimeout(
-      window.__resizeTimer
+      window
+        .__resizeTimer
     );
 
 
-    window.__resizeTimer =
-      setTimeout(
-        redraw,
-        150
-      );
+    window
+      .__resizeTimer =
+        setTimeout(
+          redraw,
+          150
+        );
   }
 );
 
+
 </script>
 
+
 </body>
+
 </html>`;
 
 
     return new Response(
       html,
       {
-        status: 200,
+        status:
+          200,
 
         headers: {
 
