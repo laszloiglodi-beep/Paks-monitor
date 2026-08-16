@@ -10,7 +10,7 @@ const PUBLIC_URL =
 const FB_IMAGE_RAW =
   "https://raw.githubusercontent.com/laszloiglodi-beep/Paks-monitor/main/60CF06BF-2068-420D-AC41-224FB3B75358.png";
 
-const VERSION = "PAKS MONITOR V4";
+const VERSION = "PAKS MONITOR V5";
 
 
 // ============================================================
