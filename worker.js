@@ -1,981 +1,3 @@
-const OAH_URL =
-  "https://tranem.haea.gov.hu/web/v3/OAHPortal.nsf/web?OpenAgent=&article=paksnpp";
-
-const VIZ_URL =
-  "https://www.vizugy.hu/?AllomasVOA=16496188-97AB-11D4-BB62-00508BA24287&mapData=OrasIdosor&mapModule=OpGrafikon";
-
-const HVCS_URL =
-  "https://www.vizugy.hu/?AllomasVOA=762D32FE-1414-4A35-9121-6FCE1EED55B4&mapData=OrasIdosor&mapModule=OpGrafikon";
-
-const THRESHOLD_UP_URL =
-  "https://www.vizugy.hu/?AllomasVOA=3472EA24-55EA-4B05-B1D7-3695034CADB9&mapData=OrasIdosor&mapModule=OpGrafikon";
-
-const THRESHOLD_DOWN_URL =
-  "https://www.vizugy.hu/?AllomasVOA=D79FBC2B-EBE1-4BBE-A431-B3FA46D638B8&mapData=OrasIdosor&mapModule=OpGrafikon";
-
-const PUBLIC_URL =
-  "https://paks-monitor.laszlo-iglodi.workers.dev";
-
-const FB_IMAGE_RAW =
-  "https://raw.githubusercontent.com/laszloiglodi-beep/Paks-monitor/main/60CF06BF-2068-420D-AC41-224FB3B75358.png";
-
-const VERSION = "PAKS MONITOR V10";
-
-const PAKS_ZERO_MBF = 85.380;
-const LOCAL_ZERO_MBF = 85.000;
-
-
-// ============================================================
-// SEGÉDFÜGGVÉNYEK
-// ============================================================
-
-function clean(html) {
-  return String(html || "")
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&#160;/gi, " ")
-    .replace(/&minus;/gi, "-")
-    .replace(/&#8722;/gi, "-")
-    .replace(/&deg;/gi, "°")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function fmt1(value) {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value.toLocaleString("hu-HU", {
-        minimumFractionDigits: 1,
-        maximumFractionDigits: 1
-      })
-    : "—";
-}
-
-function fmt2(value) {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value.toLocaleString("hu-HU", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
-      })
-    : "—";
-}
-
-function shortTime(value) {
-  const match = String(value || "").match(/(\d{2}:\d{2})/);
-  return match ? match[1] : "—";
-}
-
-
-// ============================================================
-// BUDAPEST IDŐ
-// ============================================================
-
-function getBudapestOffset(timestamp) {
-  const formatter = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Europe/Budapest",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23"
-  });
-
-  const parts = formatter.formatToParts(new Date(timestamp));
-  const values = {};
-
-  for (const part of parts) {
-    if (part.type !== "literal") {
-      values[part.type] = Number(part.value);
-    }
-  }
-
-  const localAsUTC = Date.UTC(
-    values.year,
-    values.month - 1,
-    values.day,
-    values.hour,
-    values.minute,
-    values.second
-  );
-
-  return localAsUTC - timestamp;
-}
-
-function parseHuTimestamp(value) {
-  const match = String(value || "").match(
-    /(\d{4})\.\s*(\d{2})\.\s*(\d{2})\.?\s*(\d{2}):(\d{2})/
-  );
-
-  if (!match) return null;
-
-  const desiredLocalAsUTC = Date.UTC(
-    Number(match[1]),
-    Number(match[2]) - 1,
-    Number(match[3]),
-    Number(match[4]),
-    Number(match[5]),
-    0
-  );
-
-  let timestamp = desiredLocalAsUTC;
-
-  for (let i = 0; i < 2; i++) {
-    timestamp =
-      desiredLocalAsUTC -
-      getBudapestOffset(timestamp);
-  }
-
-  return Number.isFinite(timestamp)
-    ? timestamp
-    : null;
-}
-
-function cmToMbf(cm, zero) {
-  return Number.isFinite(cm)
-    ? zero + cm / 100
-    : null;
-}
-
-function direction(current, previous) {
-  if (
-    !Number.isFinite(current) ||
-    !Number.isFinite(previous)
-  ) {
-    return {
-      symbol: "→",
-      cls: "flat"
-    };
-  }
-
-  if (current > previous) {
-    return {
-      symbol: "↑",
-      cls: "up"
-    };
-  }
-
-  if (current < previous) {
-    return {
-      symbol: "↓",
-      cls: "down"
-    };
-  }
-
-  return {
-    symbol: "→",
-    cls: "flat"
-  };
-}
-
-
-// ============================================================
-// VÍZÜGY
-// ============================================================
-
-async function fetchVizStation(url, wantExtras = false) {
-  const result = {
-    value: null,
-    flow: null,
-    temp: null,
-    time: "—",
-    timestamp: null,
-    previousValue: null,
-    status: "OK"
-  };
-
-  try {
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (compatible; PaksMonitor/10.0)"
-      },
-      cf: {
-        cacheTtl: 60,
-        cacheEverything: false
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error("VIZ HTTP " + response.status);
-    }
-
-    const text = clean(await response.text());
-
-    const rowRegex =
-      /(20\d{2}\.\s*\d{2}\.\s*\d{2}\.?\s*\d{2}:\d{2})\s+(-?\d+)\s+(-|\d+(?:[.,]\d+)?)\s+(-|\d+(?:[.,]\d+)?)\s+(-|\d+(?:[.,]\d+)?)/g;
-
-    const rows = [];
-    let match;
-
-    while ((match = rowRegex.exec(text)) !== null) {
-      const timestamp = parseHuTimestamp(match[1]);
-
-      if (!Number.isFinite(timestamp)) continue;
-
-      rows.push({
-        timestamp,
-        time: match[1],
-        water: Number(match[2]),
-        flow: match[3],
-        temp1: match[4],
-        temp2: match[5]
-      });
-    }
-
-    rows.sort((a, b) => a.timestamp - b.timestamp);
-
-    if (!rows.length) {
-      result.status = "ADATHIBA";
-      return result;
-    }
-
-    const latest = rows[rows.length - 1];
-    const previous =
-      rows.length > 1
-        ? rows[rows.length - 2]
-        : null;
-
-    if (
-      Number.isFinite(latest.water) &&
-      latest.water > -1000 &&
-      latest.water < 1000
-    ) {
-      result.value = latest.water;
-    }
-
-    result.previousValue =
-      previous && Number.isFinite(previous.water)
-        ? previous.water
-        : null;
-
-    result.time = latest.time;
-    result.timestamp = latest.timestamp;
-
-    if (wantExtras) {
-      if (latest.flow !== "-") {
-        const f = Number(
-          latest.flow.replace(",", ".")
-        );
-
-        if (
-          Number.isFinite(f) &&
-          f >= 0 &&
-          f <= 20000
-        ) {
-          result.flow = f;
-        }
-      }
-
-      for (const raw of [
-        latest.temp1,
-        latest.temp2
-      ]) {
-        if (!raw || raw === "-") continue;
-
-        const t = Number(
-          raw.replace(",", ".")
-        );
-
-        if (
-          Number.isFinite(t) &&
-          t >= 0 &&
-          t <= 40
-        ) {
-          result.temp = t;
-          break;
-        }
-      }
-    }
-
-    if (!Number.isFinite(result.value)) {
-      result.status = "ADATHIBA";
-    }
-
-    return result;
-
-  } catch (error) {
-    result.status = "KAPCSOLATI HIBA";
-
-    console.log(
-      "VIZ STATION ERROR:",
-      error?.message || String(error)
-    );
-
-    return result;
-  }
-}
-
-
-// ============================================================
-// D1
-// ============================================================
-
-async function ensureDB(env) {
-  if (!env || !env.DB) {
-    throw new Error("DB binding missing");
-  }
-
-  await env.DB.prepare(
-    `CREATE TABLE IF NOT EXISTS measurements (
-      ts INTEGER PRIMARY KEY,
-      power INTEGER,
-      water INTEGER,
-      flow REAL,
-      temp REAL,
-      hvcs INTEGER,
-      threshold_up INTEGER,
-      threshold_down INTEGER
-    )`
-  ).run();
-
-  for (const sql of [
-    `ALTER TABLE measurements ADD COLUMN hvcs INTEGER`,
-    `ALTER TABLE measurements ADD COLUMN threshold_up INTEGER`,
-    `ALTER TABLE measurements ADD COLUMN threshold_down INTEGER`
-  ]) {
-    try {
-      await env.DB.prepare(sql).run();
-    } catch {}
-  }
-
-  await env.DB.prepare(
-    `CREATE TABLE IF NOT EXISTS meta (
-      key TEXT PRIMARY KEY,
-      value TEXT
-    )`
-  ).run();
-}
-
-
-// ============================================================
-// AKTUÁLIS ADATOK
-// ============================================================
-
-async function getCurrentData() {
-  let blocks = ["—", "—", "—", "—"];
-
-  let oahTime = "—";
-  let oahTimestamp = null;
-  let oahStatus = "OK";
-
-  try {
-    const response = await fetch(OAH_URL, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (compatible; PaksMonitor/10.0)"
-      },
-      cf: {
-        cacheTtl: 60,
-        cacheEverything: false
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(
-        "OAH HTTP " + response.status
-      );
-    }
-
-    const text = clean(
-      await response.text()
-    );
-
-    const date = text.match(
-      /Mérés dátuma:\s*([0-9]{4}\.\s*[0-9]{2}\.\s*[0-9]{2}\.?\s*[0-9]{2}:[0-9]{2})/i
-    );
-
-    if (date) {
-      oahTime = date[1];
-      oahTimestamp =
-        parseHuTimestamp(date[1]);
-    }
-
-    const mainPower = text.match(
-      /1\.\s*blokk\s*2\.\s*blokk\s*3\.\s*blokk\s*4\.\s*blokk\s*(\d+)\s*MW\s*(\d+)\s*MW\s*(\d+)\s*MW\s*(\d+)\s*MW/i
-    );
-
-    if (mainPower) {
-      blocks = [
-        mainPower[1],
-        mainPower[2],
-        mainPower[3],
-        mainPower[4]
-      ];
-    } else {
-      const values = [];
-
-      for (let i = 1; i <= 4; i++) {
-        const re = new RegExp(
-          i +
-          "\\.\\s*blokk[^0-9]{0,150}(\\d+)\\s*MW",
-          "i"
-        );
-
-        const m = text.match(re);
-
-        if (m) values.push(m[1]);
-      }
-
-      if (values.length === 4) {
-        blocks = values;
-      } else {
-        oahStatus = "ADATHIBA";
-      }
-    }
-
-    if (!Number.isFinite(oahTimestamp)) {
-      oahStatus =
-        oahStatus === "OK"
-          ? "IDŐHIBA"
-          : oahStatus;
-    }
-
-  } catch (error) {
-    oahStatus = "KAPCSOLATI HIBA";
-
-    console.log(
-      "OAH ERROR:",
-      error?.message || String(error)
-    );
-  }
-
-  const [
-    river,
-    hvcs,
-    thresholdUp,
-    thresholdDown
-  ] = await Promise.all([
-    fetchVizStation(VIZ_URL, true),
-    fetchVizStation(HVCS_URL, false),
-    fetchVizStation(
-      THRESHOLD_UP_URL,
-      false
-    ),
-    fetchVizStation(
-      THRESHOLD_DOWN_URL,
-      false
-    )
-  ]);
-
-  const validBlocks = blocks.every(
-    value =>
-      /^\d+$/.test(String(value))
-  );
-
-  const total = validBlocks
-    ? blocks.reduce(
-        (sum, value) =>
-          sum + Number(value),
-        0
-      )
-    : null;
-
-  const uplift =
-    Number.isFinite(thresholdUp.value) &&
-    Number.isFinite(thresholdDown.value)
-      ? thresholdUp.value -
-        thresholdDown.value
-      : null;
-
-  const riverMbf =
-    cmToMbf(
-      river.value,
-      PAKS_ZERO_MBF
-    );
-
-  const hvcsMbf =
-    cmToMbf(
-      hvcs.value,
-      LOCAL_ZERO_MBF
-    );
-
-  const thresholdUpMbf =
-    cmToMbf(
-      thresholdUp.value,
-      LOCAL_ZERO_MBF
-    );
-
-  const thresholdDownMbf =
-    cmToMbf(
-      thresholdDown.value,
-      LOCAL_ZERO_MBF
-    );
-
-  return {
-    blocks,
-    total,
-
-    water: river.value,
-    flow: river.flow,
-    temp: river.temp,
-
-    riverTime: river.time,
-    riverTimestamp: river.timestamp,
-    riverStatus: river.status,
-    riverPrevious: river.previousValue,
-    riverMbf,
-
-    hvcs: hvcs.value,
-    hvcsTime: hvcs.time,
-    hvcsTimestamp: hvcs.timestamp,
-    hvcsStatus: hvcs.status,
-    hvcsPrevious: hvcs.previousValue,
-    hvcsMbf,
-
-    thresholdUp: thresholdUp.value,
-    thresholdUpTime: thresholdUp.time,
-    thresholdUpTimestamp:
-      thresholdUp.timestamp,
-    thresholdUpStatus:
-      thresholdUp.status,
-    thresholdUpPrevious:
-      thresholdUp.previousValue,
-    thresholdUpMbf,
-
-    thresholdDown:
-      thresholdDown.value,
-    thresholdDownTime:
-      thresholdDown.time,
-    thresholdDownTimestamp:
-      thresholdDown.timestamp,
-    thresholdDownStatus:
-      thresholdDown.status,
-    thresholdDownPrevious:
-      thresholdDown.previousValue,
-    thresholdDownMbf,
-
-    uplift,
-
-    oahTime,
-    oahTimestamp,
-    oahStatus
-  };
-}
-
-
-// ============================================================
-// D1 MENTÉS
-// ============================================================
-
-async function upsertField(
-  env,
-  ts,
-  field,
-  value
-) {
-  if (
-    !Number.isFinite(ts) ||
-    !Number.isFinite(value)
-  ) return;
-
-  const allowed = new Set([
-    "power",
-    "water",
-    "flow",
-    "temp",
-    "hvcs",
-    "threshold_up",
-    "threshold_down"
-  ]);
-
-  if (!allowed.has(field)) {
-    throw new Error("Invalid field");
-  }
-
-  await env.DB.prepare(
-    `INSERT INTO measurements
-      (ts, ${field})
-     VALUES (?, ?)
-     ON CONFLICT(ts)
-     DO UPDATE SET
-       ${field}=excluded.${field}`
-  )
-    .bind(ts, value)
-    .run();
-}
-
-async function saveMeasurement(
-  env,
-  data
-) {
-  try {
-    await ensureDB(env);
-
-    await upsertField(
-      env,
-      data.oahTimestamp,
-      "power",
-      data.total
-    );
-
-    await upsertField(
-      env,
-      data.riverTimestamp,
-      "water",
-      data.water
-    );
-
-    await upsertField(
-      env,
-      data.riverTimestamp,
-      "flow",
-      data.flow
-    );
-
-    await upsertField(
-      env,
-      data.riverTimestamp,
-      "temp",
-      data.temp
-    );
-
-    await upsertField(
-      env,
-      data.hvcsTimestamp,
-      "hvcs",
-      data.hvcs
-    );
-
-    await upsertField(
-      env,
-      data.thresholdUpTimestamp,
-      "threshold_up",
-      data.thresholdUp
-    );
-
-    await upsertField(
-      env,
-      data.thresholdDownTimestamp,
-      "threshold_down",
-      data.thresholdDown
-    );
-
-    const cutoff =
-      Date.now() -
-      11 * 24 * 60 * 60 * 1000;
-
-    await env.DB.prepare(
-      `DELETE FROM measurements
-       WHERE ts < ?`
-    )
-      .bind(cutoff)
-      .run();
-
-  } catch (error) {
-    console.log(
-      "D1 SAVE ERROR:",
-      error?.message || String(error)
-    );
-  }
-}
-
-
-// ============================================================
-// WORKER
-// ============================================================
-
-export default {
-
-  async scheduled(
-    controller,
-    env,
-    ctx
-  ) {
-    const data =
-      await getCurrentData();
-
-    ctx.waitUntil(
-      saveMeasurement(env, data)
-    );
-  },
-
-
-  async fetch(
-    request,
-    env,
-    ctx
-  ) {
-    const url =
-      new URL(request.url);
-
-
-    // VERSION
-
-    if (url.pathname === "/version") {
-      return new Response(VERSION, {
-        headers: {
-          "content-type":
-            "text/plain;charset=UTF-8",
-          "cache-control":
-            "no-store"
-        }
-      });
-    }
-
-
-    // FACEBOOK IMAGE
-
-    if (
-      url.pathname ===
-      "/facebook-image"
-    ) {
-      try {
-        const response =
-          await fetch(FB_IMAGE_RAW);
-
-        if (!response.ok) {
-          return new Response(
-            "Image not found",
-            { status: 404 }
-          );
-        }
-
-        return new Response(
-          response.body,
-          {
-            headers: {
-              "content-type":
-                "image/png",
-              "cache-control":
-                "public, max-age=86400"
-            }
-          }
-        );
-
-      } catch {
-        return new Response(
-          "Image unavailable",
-          { status: 503 }
-        );
-      }
-    }
-
-
-    // HISTORY
-
-    if (
-      url.pathname ===
-      "/api/history"
-    ) {
-      try {
-        await ensureDB(env);
-
-        let hours = Number(
-          url.searchParams.get("hours") ||
-          6
-        );
-
-        if (
-          ![6, 24, 240].includes(hours)
-        ) {
-          hours = 6;
-        }
-
-        const cutoff =
-          Date.now() -
-          hours * 60 * 60 * 1000;
-
-        const result =
-          await env.DB.prepare(
-            `SELECT
-               ts,
-               power,
-               water,
-               flow,
-               temp,
-               hvcs,
-               threshold_up,
-               threshold_down
-             FROM measurements
-             WHERE ts >= ?
-             ORDER BY ts ASC`
-          )
-            .bind(cutoff)
-            .all();
-
-        return new Response(
-          JSON.stringify({
-            ok: true,
-            version: VERSION,
-            count:
-              result.results?.length ||
-              0,
-            data:
-              result.results || []
-          }),
-          {
-            headers: {
-              "content-type":
-                "application/json;charset=UTF-8",
-              "cache-control":
-                "no-store"
-            }
-          }
-        );
-
-      } catch (error) {
-        return new Response(
-          JSON.stringify({
-            ok: false,
-            version: VERSION,
-            data: [],
-            error:
-              error?.message ||
-              String(error)
-          }),
-          {
-            headers: {
-              "content-type":
-                "application/json;charset=UTF-8",
-              "cache-control":
-                "no-store"
-            }
-          }
-        );
-      }
-    }
-
-
-    const data =
-      await getCurrentData();
-
-    if (
-      ctx &&
-      typeof ctx.waitUntil ===
-        "function"
-    ) {
-      ctx.waitUntil(
-        saveMeasurement(env, data)
-      );
-    }
-
-    const {
-      blocks,
-      total,
-      water,
-      flow,
-      temp,
-
-      riverTime,
-      riverPrevious,
-      riverMbf,
-
-      hvcs,
-      hvcsTime,
-      hvcsPrevious,
-      hvcsMbf,
-
-      thresholdUp,
-      thresholdUpTime,
-      thresholdUpPrevious,
-      thresholdUpMbf,
-
-      thresholdDown,
-      thresholdDownTime,
-      thresholdDownPrevious,
-      thresholdDownMbf,
-
-      uplift,
-
-      oahTime,
-      oahStatus
-    } = data;
-
-
-    const totalText =
-      Number.isFinite(total)
-        ? `${total} MW`
-        : "— MW";
-
-    const waterText =
-      Number.isFinite(water)
-        ? `${water} cm`
-        : "— cm";
-
-    const flowText =
-      Number.isFinite(flow)
-        ? `${fmt1(flow)} m³/s`
-        : "— m³/s";
-
-    const tempText =
-      Number.isFinite(temp)
-        ? `${fmt1(temp)} °C`
-        : "— °C";
-
-
-    const shutdownDistance =
-      Number.isFinite(water)
-        ? water + 134
-        : null;
-
-    const safetyDistance =
-      Number.isFinite(water)
-        ? water + 144
-        : null;
-
-
-    const riverDir =
-      direction(
-        water,
-        riverPrevious
-      );
-
-    const hvcsDir =
-      direction(
-        hvcs,
-        hvcsPrevious
-      );
-
-    const upDir =
-      direction(
-        thresholdUp,
-        thresholdUpPrevious
-      );
-
-    const downDir =
-      direction(
-        thresholdDown,
-        thresholdDownPrevious
-      );
-
-
-    let riverClass = "normal";
-    let riverLabel = "NORMÁL";
-
-    if (Number.isFinite(water)) {
-      if (water <= -144) {
-        riverClass = "danger";
-        riverLabel = "KRITIKUS";
-      } else if (water <= -134) {
-        riverClass = "warning";
-        riverLabel =
-          "LEÁLLÁSI TARTOMÁNY";
-      } else if (water <= -129) {
-        riverClass = "warning";
-        riverLabel =
-          "FIGYELMEZTETÉS";
-      }
-    }
-
-
-    let markerPct = 0;
-
-    if (Number.isFinite(water)) {
-      markerPct =
-        ((-110 - water) / 40) *
-        100;
-
-      markerPct =
-        Math.max(
-          0,
-          Math.min(100, markerPct)
-        );
-    }
-
-
 const html = `<!doctype html>
 <html lang="hu">
 
@@ -983,9 +5,18 @@ const html = `<!doctype html>
 
 <meta charset="utf-8">
 
+<!--
+  V10 FEKVŐ / ZOOMOLHATÓ NÉZET
+
+  - fix 1500 px széles dashboard
+  - álló telefonon az egész egyben látszik
+  - fekvő telefonon nagyobb lesz
+  - pinch zoom engedélyezve
+-->
+
 <meta
   name="viewport"
-  content="width=device-width,initial-scale=1,viewport-fit=cover"
+  content="width=1536,initial-scale=1,minimum-scale=0.15,maximum-scale=5,user-scalable=yes,viewport-fit=cover"
 >
 
 <meta
@@ -1003,11 +34,13 @@ const html = `<!doctype html>
   content="black"
 >
 
-<title>⚛️ PAKS AKTUÁLIS ADATOK</title>
+<title>
+  ⚛️ PAKS MONITOR V10
+</title>
 
 <meta
   property="og:title"
-  content="⚛️ PAKS AKTUÁLIS ADATOK"
+  content="⚛️ PAKS MONITOR V10"
 >
 
 <meta
@@ -1015,12 +48,12 @@ const html = `<!doctype html>
   content="${PUBLIC_URL}/facebook-image"
 >
 
-
 <style>
 
 :root{
   --bg:#020811;
   --panel:#07111c;
+  --panel2:#0b1724;
   --line:#173650;
   --white:#f5f7fa;
   --muted:#8998aa;
@@ -1035,23 +68,25 @@ const html = `<!doctype html>
   box-sizing:border-box;
 }
 
-html,body{
+html{
   margin:0;
+  padding:0;
   width:100%;
+  min-width:1536px;
   min-height:100%;
-  overflow-x:hidden;
-  background:#020811;
-  color:var(--white);
-  font-family:
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    Arial,
-    sans-serif;
+  background:#000;
+  touch-action:pan-x pan-y pinch-zoom;
 }
 
 body{
+  margin:0;
+  padding:0;
+  width:100%;
+  min-width:1536px;
   min-height:100vh;
+
+  overflow:auto;
+
   background:
     radial-gradient(
       circle at 50% -10%,
@@ -1059,32 +94,69 @@ body{
       #040b14 38%,
       #02060b 100%
     );
+
+  color:var(--white);
+
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Arial,
+    sans-serif;
+
+  -webkit-text-size-adjust:100%;
+  touch-action:pan-x pan-y pinch-zoom;
 }
+
+
+/* ============================================================
+   FIX FEKVŐ VÁSZON
+============================================================ */
 
 .app{
-  width:min(100%,560px);
-  margin:auto;
-  padding:
-    max(8px,env(safe-area-inset-top))
-    8px
-    max(8px,env(safe-area-inset-bottom));
+  width:1500px;
+  min-width:1500px;
+  max-width:1500px;
+
+  margin:18px auto;
+  padding:0;
 }
 
+
+/* ============================================================
+   FEJLÉC
+============================================================ */
+
 .header{
+  height:58px;
+
   display:grid;
-  grid-template-columns:auto 1fr auto;
+  grid-template-columns:340px 1fr 430px;
+
   align-items:center;
-  gap:8px;
-  margin-bottom:7px;
+
+  gap:12px;
+
+  margin-bottom:10px;
+}
+
+.brand{
+  display:flex;
+  align-items:center;
+  gap:10px;
 }
 
 .logo{
-  width:39px;
-  height:39px;
+  width:46px;
+  height:46px;
+
   display:grid;
   place-items:center;
-  border-radius:11px;
-  font-size:23px;
+
+  border-radius:12px;
+
+  font-size:27px;
+
   background:
     linear-gradient(
       145deg,
@@ -1094,80 +166,200 @@ body{
 }
 
 .title{
-  font-size:19px;
-  font-weight:950;
+  font-size:25px;
   line-height:1;
-  letter-spacing:-.5px;
+  font-weight:950;
+  letter-spacing:-.7px;
+}
+
+.versionBadge{
+  display:inline-block;
+
+  margin-left:8px;
+
+  padding:4px 8px;
+
+  border-radius:6px;
+
+  background:#541269;
+
+  color:#f0a6ff;
+
+  font-size:10px;
 }
 
 .live{
-  padding:5px 8px;
-  border:1px solid #2b6735;
-  border-radius:999px;
-  background:#0b2110;
-  color:#70e367;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+
+  gap:7px;
+
+  color:var(--green);
+
+  font-size:13px;
+  font-weight:900;
+}
+
+.liveDot{
+  width:9px;
+  height:9px;
+
+  border-radius:50%;
+
+  background:var(--green);
+
+  box-shadow:
+    0 0 9px var(--green);
+}
+
+.headerRight{
+  display:grid;
+
+  grid-template-columns:1fr 70px;
+
+  gap:5px;
+
+  height:38px;
+}
+
+.shareLink{
+  min-width:0;
+
+  display:flex;
+  align-items:center;
+
+  padding:0 8px;
+
+  border:1px solid #9636c5;
+  border-radius:7px;
+
+  background:#16091d;
+
+  color:#d24fff;
+
+  text-decoration:none;
+
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+
+  font-size:8px;
+}
+
+.copy{
+  border:0;
+
+  border-radius:7px;
+
+  background:#142130;
+
+  color:white;
+
   font-size:8px;
   font-weight:900;
 }
 
+
+/* ============================================================
+   FELSŐ 3 PANEL
+============================================================ */
+
+.topGrid{
+  display:grid;
+
+  grid-template-columns:
+    390px
+    545px
+    545px;
+
+  gap:10px;
+
+  height:250px;
+
+  margin-bottom:10px;
+}
+
 .panel{
-  border:1px solid #173650;
-  border-radius:16px;
+  border:1px solid var(--line);
+
+  border-radius:10px;
+
   background:
     linear-gradient(
       145deg,
       #08141f,
       #06101a
     );
+
   overflow:hidden;
-  margin-bottom:7px;
 }
 
 .pad{
-  padding:9px;
+  padding:12px;
 }
 
 .sectionTitle{
   color:#a9b4c1;
-  font-size:9px;
+
+  font-size:11px;
+
   font-weight:900;
-  letter-spacing:.5px;
+
+  letter-spacing:.4px;
 }
 
 .bigRow{
   display:flex;
+
   align-items:flex-end;
+
   justify-content:space-between;
+
   gap:8px;
-  margin:4px 0 7px;
+
+  margin:
+    6px 0 8px;
 }
 
 .bigPower{
   color:var(--green);
-  font-size:39px;
-  line-height:.95;
+
+  font-size:46px;
+
+  line-height:.92;
+
   font-weight:950;
-  letter-spacing:-1.4px;
+
+  letter-spacing:-1.8px;
 }
 
 .bigWater{
   color:var(--blue);
-  font-size:39px;
-  line-height:.95;
+
+  font-size:46px;
+
+  line-height:.92;
+
   font-weight:950;
-  letter-spacing:-1.4px;
+
+  letter-spacing:-1.8px;
 }
 
 .smallCaption{
+  padding-bottom:4px;
+
   color:#718194;
-  font-size:7px;
-  padding-bottom:3px;
+
+  font-size:8px;
 }
 
 .status{
-  font-size:8px;
+  padding-bottom:4px;
+
+  font-size:9px;
+
   font-weight:900;
-  padding-bottom:3px;
 }
 
 .normal{
@@ -1182,114 +374,196 @@ body{
   color:var(--red);
 }
 
+
+/* ============================================================
+   GRAFIKONOK
+============================================================ */
+
 .chartPanel{
-  padding:6px;
+  padding:7px;
+
   border:1px solid #132c41;
-  border-radius:10px;
+
+  border-radius:8px;
+
   background:#050e18;
-  margin-bottom:6px;
+
+  margin-bottom:7px;
 }
 
 .chartHead{
   display:flex;
+
   justify-content:space-between;
+
   align-items:center;
+
   gap:5px;
+
   margin-bottom:3px;
 }
 
 .chartName{
   color:#8495a9;
-  font-size:6.5px;
+
+  font-size:7px;
+
   font-weight:850;
 }
 
 .buttons{
   display:flex;
-  gap:2px;
+
+  gap:3px;
 }
 
 .period{
   border:0;
+
   border-radius:999px;
-  padding:3px 5px;
+
+  padding:4px 7px;
+
   background:#111e2b;
+
   color:#8495a9;
-  font-size:6.5px;
+
+  font-size:7px;
+
   font-weight:850;
 }
 
 .period.active{
   background:#234763;
+
   color:#fff;
 }
 
 .chartWrap{
   position:relative;
-  height:87px;
+
+  width:100%;
+
+  height:92px;
 }
 
 canvas{
   display:block;
+
   width:100%;
   height:100%;
 }
 
+
+/* ============================================================
+   BLOKKOK
+============================================================ */
+
 .blocks{
   display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:5px;
+
+  grid-template-columns:
+    repeat(4,1fr);
+
+  height:220px;
 }
 
 .block{
-  padding:6px 7px;
-  border:1px solid #153047;
-  border-radius:9px;
-  background:#0b1724;
+  position:relative;
+
+  padding:18px 14px;
+
+  border-right:1px solid #183047;
+
+  background:
+    linear-gradient(
+      180deg,
+      #081522,
+      #06101a
+    );
+}
+
+.block:last-child{
+  border-right:0;
 }
 
 .blockName{
-  color:#8695a6;
-  font-size:6.5px;
+  color:#9ba9b8;
+
+  font-size:10px;
+
+  font-weight:800;
 }
 
 .blockValue{
-  margin-top:2px;
-  font-size:16px;
+  margin-top:37px;
+
+  font-size:24px;
+
   line-height:1;
-  font-weight:900;
+
+  font-weight:950;
 }
 
 .source{
-  padding:5px 9px;
+  height:28px;
+
+  display:flex;
+
+  align-items:center;
+
+  padding:0 11px;
+
   border-top:1px solid #173047;
+
   color:#6f8092;
-  font-size:6px;
+
+  font-size:8px;
 }
+
+
+/* ============================================================
+   HŐ / FŐÁGI KÜSZÖB
+============================================================ */
 
 .metrics{
   display:grid;
-  grid-template-columns:1fr 1fr 1fr;
-  gap:4px;
+
+  grid-template-columns:
+    1fr 1fr 1.2fr;
+
+  gap:6px;
 }
 
 .metric{
   min-width:0;
-  padding:6px;
-  border-radius:8px;
+
+  padding:10px;
+
+  border-radius:7px;
+
+  border:1px solid #10283b;
+
   background:#0b1724;
 }
 
 .metricName{
+  min-height:24px;
+
   color:#8292a4;
-  min-height:14px;
-  font-size:5.8px;
+
+  font-size:8px;
+
+  line-height:1.1;
 }
 
 .metricValue{
-  margin-top:2px;
+  margin-top:4px;
+
   white-space:nowrap;
-  font-size:13px;
+
+  font-size:20px;
+
   font-weight:900;
 }
 
@@ -1298,22 +572,34 @@ canvas{
 }
 
 .infoRule{
-  margin-top:5px;
-  padding:5px;
+  margin-top:7px;
+
+  padding:8px;
+
   border:1px solid #684a18;
-  border-radius:8px;
+
+  border-radius:7px;
+
   background:#171208;
+
   color:#ffb340;
+
   text-align:center;
-  font-size:6.3px;
+
+  font-size:9px;
+
   font-weight:900;
 }
 
 .gauge{
   position:relative;
-  height:8px;
-  margin-top:7px;
+
+  height:10px;
+
+  margin-top:11px;
+
   border-radius:999px;
+
   background:
     linear-gradient(
       90deg,
@@ -1328,21 +614,34 @@ canvas{
 
 .marker{
   position:absolute;
+
   left:${markerPct}%;
-  top:-5px;
-  width:3px;
-  height:18px;
+
+  top:-6px;
+
+  width:4px;
+  height:22px;
+
   background:white;
-  border-radius:2px;
-  transform:translateX(-50%);
-  box-shadow:0 0 6px white;
+
+  border-radius:3px;
+
+  transform:
+    translateX(-50%);
+
+  box-shadow:
+    0 0 7px white;
 }
 
 .scale{
   display:grid;
-  grid-template-columns:1fr 1fr 1fr;
-  margin-top:3px;
-  font-size:6px;
+
+  grid-template-columns:
+    1fr 1fr 1fr;
+
+  margin-top:4px;
+
+  font-size:8px;
 }
 
 .scale span:nth-child(1){
@@ -1351,118 +650,182 @@ canvas{
 
 .scale span:nth-child(2){
   text-align:center;
+
   color:var(--orange);
 }
 
 .scale span:nth-child(3){
   text-align:right;
+
   color:var(--red);
 }
 
 .distanceGrid{
   display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:5px;
-  margin-top:5px;
+
+  grid-template-columns:
+    1fr 1fr;
+
+  gap:6px;
+
+  margin-top:7px;
 }
 
 .distance{
-  padding:5px 7px;
-  border-radius:8px;
+  padding:7px 10px;
+
+  border:1px solid #10283b;
+
+  border-radius:7px;
+
   background:#0b1724;
 }
 
 .distanceNumber{
-  font-size:12px;
+  font-size:19px;
+
   font-weight:950;
 }
 
 .distanceText{
   color:#718194;
-  font-size:5.7px;
+
+  font-size:8px;
 }
 
 
 /* ============================================================
-   V10 FOLYAMATÁBRA
+   NAGY FOLYAMATÁBRA
 ============================================================ */
 
 .systemPanel{
-  padding:7px;
+  height:400px;
+
+  margin-bottom:10px;
+
+  position:relative;
+
+  border:1px solid var(--line);
+
+  border-radius:10px;
+
+  overflow:hidden;
+
+  background:#07131f;
 }
 
 .systemTitle{
+  height:35px;
+
   display:flex;
+
   align-items:center;
+
   justify-content:space-between;
-  gap:8px;
-  margin:0 2px 6px;
+
+  padding:0 13px;
+
+  border-bottom:1px solid #17364f;
+
+  background:#06111c;
 }
 
 .systemTitleMain{
-  font-size:8px;
+  font-size:12px;
+
   font-weight:950;
+
   color:#d3dce5;
 }
 
 .systemTitleLive{
   color:#6f8397;
-  font-size:5.7px;
+
+  font-size:9px;
+
   font-weight:800;
 }
 
+
+/* ============================================================
+   ÉLŐ ADATSOR A RAJZ FÖLÖTT
+============================================================ */
+
 .dataRail{
+  height:74px;
+
   display:grid;
+
   grid-template-columns:
-    repeat(5,minmax(0,1fr));
-  gap:3px;
-  margin-bottom:5px;
+    repeat(5,1fr);
+
+  gap:6px;
+
+  padding:7px;
+
+  background:#050e17;
+
+  border-bottom:1px solid #17354d;
 }
 
 .dataBox{
   min-width:0;
-  padding:4px 2px;
+
+  padding:6px;
+
   border:1px solid #18364e;
+
   border-radius:7px;
+
   background:#07131f;
+
   text-align:center;
 }
 
 .dataBox.upliftBox{
   border-color:#37793f;
+
   background:#07160a;
 }
 
 .dataLabel{
-  min-height:17px;
-  display:flex;
-  justify-content:center;
-  align-items:center;
   color:#8596a8;
-  font-size:5px;
+
+  font-size:7px;
+
   line-height:1.05;
+
   font-weight:850;
 }
 
 .dataValue{
-  margin-top:2px;
+  margin-top:4px;
+
   white-space:nowrap;
-  font-size:11.5px;
+
+  font-size:18px;
+
   line-height:1;
+
   font-weight:950;
 }
 
 .dataSub{
-  margin-top:2px;
+  margin-top:3px;
+
   color:#7a8b9d;
+
   white-space:nowrap;
-  font-size:5px;
+
+  font-size:7px;
 }
 
 .dataTime{
-  margin-top:2px;
+  margin-top:3px;
+
   color:#5d7184;
-  font-size:4.8px;
+
+  font-size:6px;
 }
 
 .blue{
@@ -1485,53 +848,76 @@ canvas{
   color:#a0acb8;
 }
 
+
+/* ============================================================
+   SEMATIKUS RAJZ
+============================================================ */
+
 .systemScene{
   position:relative;
+
   width:100%;
-  height:195px;
+
+  height:290px;
+
   overflow:hidden;
-  border:1px solid #183952;
-  border-radius:11px;
+
   background:
     linear-gradient(
       180deg,
       #11283d 0%,
-      #0f2639 53%,
-      #3e332a 53%,
+      #0f2639 54%,
+      #3e332a 54%,
       #2e261f 100%
     );
 }
 
+
+/* FŐÁG */
+
 .riverLeft{
   position:absolute;
+
   left:0;
-  top:91px;
-  width:30%;
-  height:54px;
+  top:152px;
+
+  width:29%;
+
+  height:80px;
+
   background:
     linear-gradient(
       180deg,
       #268fd0,
       #126497
     );
-  border-top:2px solid #67c6ff;
+
+  border-top:3px solid #67c6ff;
 }
+
+
+/* EMELKEDŐ FELVÍZ */
 
 .waterRise{
   position:absolute;
-  left:29%;
-  top:77px;
-  width:20%;
-  height:68px;
+
+  left:28.5%;
+  top:132px;
+
+  width:18%;
+
+  height:100px;
+
   background:
     linear-gradient(
       180deg,
       #2c96d6,
       #166aa0
     );
+
   clip-path:
     polygon(
-      0 21%,
+      0 20%,
       100% 0,
       100% 100%,
       0 100%
@@ -1540,200 +926,318 @@ canvas{
 
 .riseSurface{
   position:absolute;
-  left:29%;
-  top:89px;
-  width:21%;
-  height:3px;
+
+  z-index:6;
+
+  left:28.5%;
+  top:151px;
+
+  width:18.5%;
+
+  height:4px;
+
   background:#66c7ff;
-  transform:rotate(-7deg);
-  transform-origin:left center;
+
+  transform:
+    rotate(-6deg);
+
+  transform-origin:
+    left center;
+
   box-shadow:
-    0 0 7px rgba(73,169,255,.75);
+    0 0 8px
+    rgba(
+      73,
+      169,
+      255,
+      .75
+    );
 }
+
+
+/* FELVÍZI SZAKASZ */
 
 .riverRight{
   position:absolute;
-  left:48%;
+
+  left:46%;
   right:0;
-  top:77px;
-  height:68px;
+
+  top:132px;
+
+  height:100px;
+
   background:
     linear-gradient(
       180deg,
       #2c96d6,
       #166aa0
     );
-  border-top:2px solid #66c7ff;
+
+  border-top:3px solid #66c7ff;
 }
+
+
+/* MEDER */
 
 .riverBed{
   position:absolute;
+
   left:0;
   right:0;
-  top:145px;
+
+  top:232px;
   bottom:0;
+
   background:
     linear-gradient(
       #48382c,
       #2d241e
     );
+
   border-top:2px solid #5a493b;
 }
 
+
+/* DUZZASZTÁSI BADGE */
+
 .upliftBadge{
   position:absolute;
-  z-index:10;
-  left:31%;
-  top:10px;
-  width:26%;
-  padding:5px 3px;
+
+  z-index:20;
+
+  left:33%;
+  top:28px;
+
+  width:180px;
+
+  padding:10px;
+
   border:1px solid #347941;
+
   border-radius:8px;
-  background:rgba(4,23,9,.95);
+
+  background:
+    rgba(
+      4,
+      23,
+      9,
+      .94
+    );
+
   text-align:center;
 }
 
 .upliftBadgeLabel{
   color:#93a39a;
-  font-size:5px;
+
+  font-size:8px;
+
   font-weight:850;
 }
 
 .upliftBadgeValue{
+  margin-top:3px;
+
   color:var(--green);
-  margin-top:1px;
-  font-size:18px;
+
+  font-size:27px;
+
   line-height:1;
+
   font-weight:950;
 }
 
+
+/* FENÉKKÜSZÖB */
+
 .threshold{
   position:absolute;
-  z-index:6;
+
+  z-index:8;
+
   left:42%;
-  top:114px;
-  width:16%;
-  height:41px;
-  border-radius:50% 50% 7px 7px;
+  top:173px;
+
+  width:15%;
+
+  height:70px;
+
+  border-radius:
+    50% 50% 7px 7px;
+
   background:
     radial-gradient(
       circle at 10% 70%,
-      #777b7d 0 7px,
-      transparent 8px
+      #777b7d 0 13px,
+      transparent 14px
     ),
     radial-gradient(
       circle at 27% 35%,
-      #96999b 0 7px,
-      transparent 8px
+      #96999b 0 14px,
+      transparent 15px
     ),
     radial-gradient(
       circle at 44% 70%,
-      #5d6163 0 8px,
-      transparent 9px
+      #5d6163 0 14px,
+      transparent 15px
     ),
     radial-gradient(
       circle at 62% 35%,
-      #888c8f 0 8px,
-      transparent 9px
+      #888c8f 0 14px,
+      transparent 15px
     ),
     radial-gradient(
       circle at 80% 70%,
-      #6a6e70 0 7px,
-      transparent 8px
+      #6a6e70 0 13px,
+      transparent 14px
     ),
     #45494b;
 }
 
 .thresholdText{
   position:absolute;
-  z-index:8;
+
+  z-index:10;
+
   left:40%;
-  top:158px;
-  width:20%;
+  top:248px;
+
+  width:19%;
+
   text-align:center;
+
   color:#aeb8c0;
-  font-size:5.2px;
+
+  font-size:9px;
+
   font-weight:900;
 }
 
+
+/* RÁCS */
+
 .rack{
   position:absolute;
-  z-index:7;
+
+  z-index:12;
+
   left:64%;
-  top:91px;
-  width:14px;
-  height:54px;
-  border:2px solid #95a1ac;
+
+  top:152px;
+
+  width:28px;
+  height:95px;
+
+  border:3px solid #95a1ac;
+
   background:
     repeating-linear-gradient(
       90deg,
-      #253947 0 2px,
-      #8e9ba6 2px 4px
+      #253947 0 4px,
+      #8e9ba6 4px 7px
     );
 }
 
 .rackText{
   position:absolute;
-  z-index:8;
+
+  z-index:12;
+
   left:59%;
-  top:150px;
-  width:25%;
+  top:250px;
+
+  width:22%;
+
   text-align:center;
+
   color:#85cfff;
-  font-size:4.8px;
+
+  font-size:8px;
+
   font-weight:900;
 }
 
+
+/* SZIVATTYÚK */
+
 .pump{
   position:absolute;
-  z-index:7;
-  top:80px;
-  width:12px;
-  height:66px;
-  border-left:5px solid #929da6;
-  border-radius:4px;
+
+  z-index:13;
+
+  top:133px;
+
+  width:25px;
+  height:115px;
+
+  border-left:9px solid #929da6;
+
+  border-radius:5px;
 }
 
 .pump:before{
   content:"";
+
   position:absolute;
-  left:-8px;
-  top:-5px;
-  width:15px;
-  height:11px;
-  border-radius:4px;
+
+  left:-15px;
+  top:-8px;
+
+  width:27px;
+  height:20px;
+
+  border-radius:6px;
+
   background:#919ba4;
 }
 
 .pump:after{
   content:"";
+
   position:absolute;
-  left:-9px;
-  bottom:-6px;
-  width:16px;
-  height:16px;
-  border:2px solid #323b42;
+
+  left:-16px;
+  bottom:-8px;
+
+  width:29px;
+  height:29px;
+
+  border:3px solid #323b42;
+
   border-radius:50%;
+
   background:#68747d;
 }
 
 .pump1{
-  left:74%;
+  left:73%;
 }
 
 .pump2{
-  left:80%;
+  left:79%;
 }
+
+
+/* ERŐMŰ */
 
 .plant{
   position:absolute;
-  z-index:7;
-  right:2%;
-  top:75px;
-  width:57px;
-  height:70px;
+
+  z-index:12;
+
+  right:3%;
+
+  top:110px;
+
+  width:145px;
+  height:140px;
+
   border:1px solid #88949d;
-  border-radius:8px 8px 3px 3px;
+
+  border-radius:
+    10px 10px 4px 4px;
+
   background:
     linear-gradient(
       145deg,
@@ -1744,234 +1248,305 @@ canvas{
 
 .plant:before{
   content:"";
+
   position:absolute;
-  left:11px;
-  top:-22px;
-  width:33px;
-  height:25px;
+
+  left:29px;
+  top:-47px;
+
+  width:85px;
+  height:50px;
+
   border:1px solid #8e999f;
-  border-radius:50% 50% 0 0;
+
+  border-radius:
+    50% 50% 0 0;
+
   background:#5d6870;
 }
 
 .plantName{
   position:absolute;
-  left:3px;
-  right:3px;
-  top:14px;
+
+  left:5px;
+  right:5px;
+
+  top:42px;
+
   text-align:center;
+
   color:#f2f4f7;
-  font-size:5.5px;
+
+  font-size:13px;
+
   line-height:1.05;
+
   font-weight:900;
 }
 
 .plantMw{
   position:absolute;
-  left:2px;
-  right:2px;
-  bottom:8px;
+
+  left:4px;
+  right:4px;
+
+  bottom:25px;
+
   text-align:center;
+
   color:var(--green);
-  font-size:11px;
+
+  font-size:24px;
+
   font-weight:950;
 }
 
+
+/* ÁRAMLÁSI NYILAK */
+
 .flowArrow{
   position:absolute;
-  z-index:8;
+
+  z-index:14;
+
   color:#6bc4fb;
-  font-size:16px;
+
+  font-size:29px;
+
   font-weight:950;
-  opacity:.85;
+
+  opacity:.9;
 }
 
 .fa1{
   left:18%;
-  top:99px;
+  top:180px;
 }
 
 .fa2{
-  left:58%;
-  top:91px;
+  left:59%;
+  top:175px;
 }
 
 .fa3{
   left:69%;
-  top:98px;
+  top:181px;
 }
+
+
+/* MAGYARÁZAT */
 
 .sceneNote{
   position:absolute;
-  left:3px;
-  bottom:3px;
-  z-index:20;
-  padding:2px 4px;
-  border-radius:4px;
-  background:rgba(2,8,17,.75);
+
+  left:10px;
+  bottom:8px;
+
+  z-index:25;
+
+  padding:4px 7px;
+
+  border-radius:5px;
+
+  background:
+    rgba(
+      2,
+      8,
+      17,
+      .78
+    );
+
   color:#8999a9;
-  font-size:4.5px;
+
+  font-size:7px;
 }
+
+
+/* ============================================================
+   ALSÓ 5 ADATKÁRTYA
+============================================================ */
 
 .summaryRail{
   display:grid;
+
   grid-template-columns:
-    repeat(5,minmax(0,1fr));
-  gap:4px;
-  margin-top:5px;
+    repeat(5,1fr);
+
+  gap:7px;
+
+  margin-bottom:9px;
 }
 
 .summary{
   min-width:0;
-  padding:5px 3px;
+
+  height:92px;
+
+  padding:11px 7px;
+
   border:1px solid #18364e;
-  border-radius:7px;
+
+  border-radius:8px;
+
   background:#06121d;
+
   text-align:center;
 }
 
 .summary.highlight{
   border-color:#3c7438;
+
   background:#08160b;
 }
 
 .summaryLabel{
-  min-height:15px;
+  min-height:17px;
+
   display:flex;
+
   justify-content:center;
+
   align-items:center;
+
   color:#8494a5;
-  font-size:5px;
+
+  font-size:9px;
+
   line-height:1.05;
+
   font-weight:800;
 }
 
 .summaryValue{
-  margin-top:2px;
+  margin-top:6px;
+
   white-space:nowrap;
-  font-size:12px;
+
+  font-size:22px;
+
   font-weight:950;
 }
 
 .summarySub{
-  margin-top:2px;
+  margin-top:5px;
+
   color:#647486;
-  font-size:4.7px;
+
+  font-size:8px;
 }
 
-.share{
+
+/* ============================================================
+   ALSÓ SOR
+============================================================ */
+
+.bottomBar{
+  height:39px;
+
   display:grid;
-  grid-template-columns:1fr 55px;
-  gap:4px;
-  padding:6px;
+
+  grid-template-columns:
+    1fr
+    400px
+    180px;
+
+  gap:8px;
+
+  align-items:center;
+
+  margin-bottom:8px;
+}
+
+.bottomInfo{
+  color:#65798c;
+
+  font-size:8px;
+}
+
+.bottomShare{
+  height:36px;
+
+  display:grid;
+
+  grid-template-columns:
+    1fr 70px;
+
+  gap:5px;
+
+  padding:4px;
+
   border:1px solid #17334a;
-  border-radius:10px;
+
+  border-radius:8px;
+
   background:#07111b;
 }
 
-.shareLink{
-  min-width:0;
-  height:25px;
-  display:flex;
-  align-items:center;
-  padding:0 6px;
-  border:1px solid #9636c5;
-  border-radius:7px;
-  background:#16091d;
-  color:#d24fff;
-  text-decoration:none;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  font-size:6px;
-}
-
-.copy{
-  border:0;
-  border-radius:7px;
-  background:#142130;
-  color:white;
-  font-size:6.5px;
-  font-weight:900;
-}
-
 .version{
-  text-align:center;
-  padding:5px;
+  text-align:right;
+
   color:#405266;
-  font-size:5.5px;
+
+  font-size:8px;
+
   letter-spacing:1px;
 }
 
+
+/* ============================================================
+   TOAST
+============================================================ */
+
 .toast{
   position:fixed;
+
   left:50%;
   bottom:20px;
+
+  z-index:9999;
+
   transform:
     translateX(-50%)
     translateY(10px);
+
   opacity:0;
-  padding:7px 12px;
+
+  padding:8px 14px;
+
   border:1px solid #337b40;
+
   border-radius:999px;
+
   background:#102819;
+
   color:#79e870;
-  font-size:10px;
+
+  font-size:11px;
+
   font-weight:850;
+
   transition:.2s;
+
   pointer-events:none;
 }
 
 .toast.show{
   opacity:1;
+
   transform:
     translateX(-50%)
     translateY(0);
 }
 
-@media(min-width:850px){
 
-  .app{
-    width:min(1480px,98vw);
-  }
+/*
+  NINCS MOBIL ÁTTÖRDELÉS.
 
-  .topGrid{
-    display:grid;
-    grid-template-columns:
-      1fr 1.35fr 1.35fr;
-    gap:8px;
-  }
+  Ez szándékos.
 
-  .topGrid .panel{
-    margin-bottom:8px;
-  }
-
-  .chartWrap{
-    height:160px;
-  }
-
-  .bigPower,
-  .bigWater{
-    font-size:63px;
-  }
-
-  .systemScene{
-    height:330px;
-  }
-
-  .summaryRail{
-    grid-template-columns:
-      repeat(5,minmax(0,1fr));
-  }
-
-  .summaryValue{
-    font-size:20px;
-  }
-
-  .dataValue{
-    font-size:18px;
-  }
-}
+  A teljes 1500 px széles műszerfal
+  mindig ugyanabban az elrendezésben marad.
+*/
 
 </style>
 
@@ -1980,198 +1555,359 @@ canvas{
 
 <body>
 
+
 <div class="app">
+
+
+<!-- =========================================================
+     FEJLÉC
+========================================================== -->
+
 
 <div class="header">
 
-  <div class="logo">⚛️</div>
 
-  <div class="title">
-    PAKS AKTUÁLIS ADATOK
+  <div class="brand">
+
+    <div class="logo">
+      ⚛️
+    </div>
+
+    <div class="title">
+
+      PAKS MONITOR
+
+      <span class="versionBadge">
+        V10
+      </span>
+
+    </div>
+
   </div>
+
 
   <div class="live">
-    ● ÉLŐ
+
+    <span class="liveDot"></span>
+
+    ÉLŐ ADATOK
+
   </div>
 
+
+  <div class="headerRight">
+
+
+    <a
+      class="shareLink"
+      href="${PUBLIC_URL}"
+    >
+      🔗 ${PUBLIC_URL}
+    </a>
+
+
+    <button
+      class="copy"
+      id="copyButton"
+    >
+      MÁSOLÁS
+    </button>
+
+
+  </div>
+
+
 </div>
+
+
+
+<!-- =========================================================
+     FELSŐ 3 PANEL
+========================================================== -->
 
 
 <div class="topGrid">
 
 
-<!-- ERŐMŰ -->
+<!-- TELJESÍTMÉNY -->
+
 
 <div class="panel">
 
+
 <div class="pad">
+
 
 <div class="sectionTitle">
   PAKSI ATOMERŐMŰ TELJESÍTMÉNYE
 </div>
 
+
 <div class="bigRow">
 
-  <div class="bigPower">
-    ${totalText}
-  </div>
 
-  <div class="smallCaption">
-    ÖSSZTELJESÍTMÉNY
-  </div>
+<div class="bigPower">
+  ${totalText}
+</div>
+
+
+<div class="smallCaption">
+  ÖSSZTELJESÍTMÉNY
+</div>
+
 
 </div>
 
 
 <div class="chartPanel">
 
+
 <div class="chartHead">
+
 
 <div class="chartName">
   TELJESÍTMÉNY VÁLTOZÁSA • MW
 </div>
 
+
 <div class="buttons">
 
-<button
- class="period active"
- data-chart="power"
- data-hours="6"
->6 ÓRA</button>
 
 <button
- class="period"
- data-chart="power"
- data-hours="24"
->24 ÓRA</button>
+  class="period active"
+  data-chart="power"
+  data-hours="6"
+>
+  6 ÓRA
+</button>
+
 
 <button
- class="period"
- data-chart="power"
- data-hours="240"
->10 NAP</button>
+  class="period"
+  data-chart="power"
+  data-hours="24"
+>
+  24 ÓRA
+</button>
+
+
+<button
+  class="period"
+  data-chart="power"
+  data-hours="240"
+>
+  10 NAP
+</button>
+
 
 </div>
+
+
 </div>
+
 
 <div class="chartWrap">
-<canvas id="powerChart"></canvas>
-</div>
+
+<canvas
+  id="powerChart"
+></canvas>
 
 </div>
+
+
+</div>
+
+
+</div>
+
+
+<div class="source">
+
+OAH •
+
+${shortTime(oahTime)} •
+
+${oahStatus}
+
+</div>
+
+
+</div>
+
+
+
+<!-- BLOKKOK -->
+
+
+<div class="panel">
 
 
 <div class="blocks">
 
-${blocks.map((value,index)=>`
+
+${blocks.map(
+  (
+    value,
+    index
+  ) => `
 
 <div class="block">
 
+
 <div class="blockName">
-  ${index+1}. BLOKK
-</div>
 
-<div class="blockValue">
-  ${
-    value === "—"
-      ? "—"
-      : value + " MW"
-  }
-</div>
+${index + 1}. BLOKK
 
 </div>
 
-`).join("")}
+
+<div
+  class="blockValue"
+  style="${
+    Number(value) > 0
+      ? "color:#65df58"
+      : ""
+  }"
+>
+
+${
+  value === "—"
+    ? "—"
+    : value + " MW"
+}
 
 </div>
 
+
+<div
+  style="
+    position:absolute;
+    left:14px;
+    right:14px;
+    bottom:45px;
+    height:3px;
+    background:#273847;
+  "
+>
+
+<div
+  style="
+    height:100%;
+    width:${
+      Number.isFinite(
+        Number(value)
+      )
+        ? Math.max(
+            0,
+            Math.min(
+              100,
+              Math.round(
+                Number(value) /
+                500 *
+                100
+              )
+            )
+          )
+        : 0
+    }%;
+    background:${
+      Number(value) > 0
+        ? "#65df58"
+        : "#344652"
+    };
+  "
+></div>
+
 </div>
+
+
+<div
+  style="
+    position:absolute;
+    left:14px;
+    bottom:24px;
+    color:#8998a8;
+    font-size:9px;
+  "
+>
+
+${
+  Number.isFinite(
+    Number(value)
+  )
+    ? Math.round(
+        Number(value) /
+        500 *
+        100
+      ) + "%"
+    : "—"
+}
+
+</div>
+
+
+</div>
+
+`
+).join("")}
+
+
+</div>
+
 
 <div class="source">
-  OAH • ${shortTime(oahTime)} • ${oahStatus}
-</div>
+
+OAH •
+
+${shortTime(oahTime)} •
+
+${oahStatus}
 
 </div>
 
 
+</div>
 
-<!-- DUNA -->
+
+
+<!-- DUNA / HŐ / HATÁR -->
+
 
 <div class="panel">
 
+
 <div class="pad">
 
+
 <div class="sectionTitle">
-  🌊 DUNA VÍZÁLLÁSA PAKSNÁL
+  🌊 DUNA • PAKS FŐÁG
 </div>
+
 
 <div class="bigRow">
 
+
 <div class="bigWater">
-  ${waterText}
-</div>
 
-<div class="status ${riverClass}">
-  ${riverLabel}
-</div>
+${waterText}
 
 </div>
 
 
-<div class="chartPanel">
+<div
+  class="status ${riverClass}"
+>
 
-<div class="chartHead">
-
-<div class="chartName">
-  VÍZÁLLÁS VÁLTOZÁSA • CM
-</div>
-
-<div class="buttons">
-
-<button
- class="period active"
- data-chart="water"
- data-hours="6"
->6 ÓRA</button>
-
-<button
- class="period"
- data-chart="water"
- data-hours="24"
->24 ÓRA</button>
-
-<button
- class="period"
- data-chart="water"
- data-hours="240"
->10 NAP</button>
-
-</div>
-</div>
-
-<div class="chartWrap">
-<canvas id="waterChart"></canvas>
-</div>
-
-</div>
-
-</div>
-
-<div class="source">
-  VÍZÜGY • ${shortTime(riverTime)}
-</div>
+${riverLabel}
 
 </div>
 
 
+</div>
 
-<!-- HŐ / HATÁR -->
-
-<div class="panel">
-
-<div class="pad">
 
 <div class="metrics">
+
 
 <div class="metric">
 
@@ -2202,7 +1938,7 @@ ${blocks.map((value,index)=>`
 <div class="metric">
 
 <div class="metricName">
-  KILÉPŐ VÍZ HŐ
+  KILÉPŐ VÍZHŐ
 </div>
 
 <div class="metricValue orange">
@@ -2211,105 +1947,158 @@ ${blocks.map((value,index)=>`
 
 </div>
 
+
 </div>
 
 
 <div class="infoRule">
-  KILÉPŐ VÍZHŐ: NINCS FRISS HITELES ADAT
-  • 29,5 °C BEAVATKOZÁSI SZINT
-  • +0,1 °C → −80 MW
+
+KILÉPŐ VÍZHŐ:
+NINCS FRISS HITELES ADAT
+
+• 29,5 °C BEAVATKOZÁSI SZINT
+
+• +0,1 °C → −80 MW
+
 </div>
 
 
 <div class="gauge">
-  <div
-    class="marker"
-    style="left:${markerPct}%"
-  ></div>
+
+
+<div
+  class="marker"
+  style="left:${markerPct}%"
+></div>
+
+
 </div>
 
 
 <div class="scale">
 
-<span>NORMÁL</span>
+<span>
+  NORMÁL
+</span>
 
-<span>−134 CM</span>
+<span>
+  −134 CM
+</span>
 
-<span>−144 CM</span>
+<span>
+  −144 CM
+</span>
 
 </div>
 
 
 <div class="distanceGrid">
 
+
 <div class="distance">
 
+
 <div class="distanceNumber">
-  ${
-    Number.isFinite(
-      shutdownDistance
-    )
-      ? shutdownDistance +
-        " cm"
-      : "—"
-  }
+
+${
+  Number.isFinite(
+    shutdownDistance
+  )
+    ? shutdownDistance +
+      " cm"
+    : "—"
+}
+
 </div>
+
 
 <div class="distanceText">
   −134 CM KÜSZÖBIG
 </div>
 
+
 </div>
 
 
 <div class="distance">
 
+
 <div class="distanceNumber">
-  ${
-    Number.isFinite(
-      safetyDistance
-    )
-      ? safetyDistance +
-        " cm"
-      : "—"
-  }
+
+${
+  Number.isFinite(
+    safetyDistance
+  )
+    ? safetyDistance +
+      " cm"
+    : "—"
+}
+
 </div>
+
 
 <div class="distanceText">
   −144 CM HATÁRIG
 </div>
 
-</div>
 
 </div>
 
+
 </div>
+
+
+</div>
+
 
 <div class="source">
-  VÍZHŐMÉRSÉKLET • FRISS ADAT HIÁNYZIK
-</div>
+
+VÍZÜGY •
+
+${shortTime(riverTime)}
 
 </div>
 
+
+</div>
+
+
 </div>
 
 
 
-<!-- V10 FOLYAMATÁBRA -->
+<!-- =========================================================
+     NAGY FOLYAMATÁBRA
+========================================================== -->
 
-<div class="panel systemPanel">
+
+<div class="systemPanel">
+
 
 <div class="systemTitle">
 
+
 <div class="systemTitleMain">
-  DUNA → FENÉKKÜSZÖB → HIDEGVÍZ-CSATORNA → SZIVATTYÚK → ERŐMŰ
+
+DUNA → FENÉKKÜSZÖB →
+HIDEGVÍZ-CSATORNA →
+SZIVATTYÚK → ERŐMŰ
+
 </div>
+
 
 <div class="systemTitleLive">
-  VÍZÜGY ÉLŐ
-</div>
+
+VÍZÜGY ÉLŐ MÉRÉSEK
 
 </div>
+
+
+</div>
+
+
+
+<!-- FELSŐ ÉLŐ ADATSOR -->
 
 
 <div class="dataRail">
@@ -2317,36 +2106,54 @@ ${blocks.map((value,index)=>`
 
 <div class="dataBox">
 
+
 <div class="dataLabel">
-  DUNA<br>PAKS FŐÁG
+  DUNA • PAKS FŐÁG
 </div>
+
 
 <div class="dataValue blue">
 
 ${
-  Number.isFinite(water)
-    ? water + " cm"
+  Number.isFinite(
+    water
+  )
+    ? water +
+      " cm"
     : "—"
 }
 
-<span class="dir ${riverDir.cls}">
+<span
+  class="dir ${riverDir.cls}"
+>
   ${riverDir.symbol}
 </span>
 
 </div>
 
+
 <div class="dataSub">
+
 ${
-  Number.isFinite(riverMbf)
-    ? fmt2(riverMbf) +
+  Number.isFinite(
+    riverMbf
+  )
+    ? fmt2(
+        riverMbf
+      ) +
       " mBf"
     : "—"
 }
+
 </div>
 
+
 <div class="dataTime">
-  ${shortTime(riverTime)}
+
+${shortTime(riverTime)}
+
 </div>
+
 
 </div>
 
@@ -2354,9 +2161,11 @@ ${
 
 <div class="dataBox">
 
+
 <div class="dataLabel">
-  FENÉKKÜSZÖB<br>FELVÍZ
+  FENÉKKÜSZÖB • FELVÍZ
 </div>
+
 
 <div class="dataValue green">
 
@@ -2369,27 +2178,39 @@ ${
     : "—"
 }
 
-<span class="dir ${upDir.cls}">
-  ${upDir.symbol}
+<span
+  class="dir ${upDir.cls}"
+>
+${upDir.symbol}
 </span>
 
 </div>
 
+
 <div class="dataSub">
+
 ${
   Number.isFinite(
     thresholdUpMbf
   )
     ? fmt2(
         thresholdUpMbf
-      ) + " mBf"
+      ) +
+      " mBf"
     : "—"
 }
+
 </div>
 
+
 <div class="dataTime">
-  ${shortTime(thresholdUpTime)}
+
+${shortTime(
+  thresholdUpTime
+)}
+
 </div>
+
 
 </div>
 
@@ -2397,27 +2218,40 @@ ${
 
 <div class="dataBox upliftBox">
 
+
 <div class="dataLabel">
-  DUZZASZTÁS<br>EREDMÉNYE
+  DUZZASZTÁS • FELVÍZ − ALVÍZ
 </div>
 
+
 <div class="dataValue green">
+
 ${
-  Number.isFinite(uplift)
-    ? (uplift >= 0 ? "+" : "") +
+  Number.isFinite(
+    uplift
+  )
+    ? (
+        uplift >= 0
+          ? "+"
+          : ""
+      ) +
       uplift +
       " cm"
     : "—"
 }
+
 </div>
 
+
 <div class="dataSub">
-  FELVÍZ − ALVÍZ
+  MÉRT KÜLÖNBSÉG
 </div>
+
 
 <div class="dataTime">
   ÉLŐ
 </div>
+
 
 </div>
 
@@ -2425,9 +2259,11 @@ ${
 
 <div class="dataBox">
 
+
 <div class="dataLabel">
-  FENÉKKÜSZÖB<br>ALVÍZ
+  FENÉKKÜSZÖB • ALVÍZ
 </div>
+
 
 <div class="dataValue blue">
 
@@ -2440,27 +2276,39 @@ ${
     : "—"
 }
 
-<span class="dir ${downDir.cls}">
-  ${downDir.symbol}
+<span
+  class="dir ${downDir.cls}"
+>
+${downDir.symbol}
 </span>
 
 </div>
 
+
 <div class="dataSub">
+
 ${
   Number.isFinite(
     thresholdDownMbf
   )
     ? fmt2(
         thresholdDownMbf
-      ) + " mBf"
+      ) +
+      " mBf"
     : "—"
 }
+
 </div>
 
+
 <div class="dataTime">
-  ${shortTime(thresholdDownTime)}
+
+${shortTime(
+  thresholdDownTime
+)}
+
 </div>
+
 
 </div>
 
@@ -2468,118 +2316,198 @@ ${
 
 <div class="dataBox">
 
+
 <div class="dataLabel">
-  HIDEGVÍZ-CSATORNA<br>ÖBLÖZET
+  HIDEGVÍZ-CSATORNA • ÖBLÖZET
 </div>
+
 
 <div class="dataValue blue">
 
 ${
-  Number.isFinite(hvcs)
+  Number.isFinite(
+    hvcs
+  )
     ? hvcs +
       " cm"
     : "—"
 }
 
-<span class="dir ${hvcsDir.cls}">
-  ${hvcsDir.symbol}
+<span
+  class="dir ${hvcsDir.cls}"
+>
+${hvcsDir.symbol}
 </span>
 
 </div>
 
+
 <div class="dataSub">
+
 ${
-  Number.isFinite(hvcsMbf)
-    ? fmt2(hvcsMbf) +
+  Number.isFinite(
+    hvcsMbf
+  )
+    ? fmt2(
+        hvcsMbf
+      ) +
       " mBf"
     : "—"
 }
+
 </div>
+
 
 <div class="dataTime">
-  ${shortTime(hvcsTime)}
-</div>
+
+${shortTime(hvcsTime)}
 
 </div>
 
+
 </div>
 
+
+</div>
+
+
+
+<!-- RAJZ -->
 
 
 <div class="systemScene">
 
+
 <div class="riverLeft"></div>
+
 <div class="waterRise"></div>
+
 <div class="riseSurface"></div>
+
 <div class="riverRight"></div>
+
 <div class="riverBed"></div>
+
 
 
 <div class="upliftBadge">
 
+
 <div class="upliftBadgeLabel">
-  MÉRT FELVÍZ − ALVÍZ
+  DUZZASZTÁS EREDMÉNYE
 </div>
 
+
 <div class="upliftBadgeValue">
+
 ${
-  Number.isFinite(uplift)
-    ? (uplift >= 0 ? "+" : "") +
+  Number.isFinite(
+    uplift
+  )
+    ? (
+        uplift >= 0
+          ? "+"
+          : ""
+      ) +
       uplift +
       " cm"
     : "—"
 }
-</div>
 
 </div>
+
+
+</div>
+
 
 
 <div class="threshold"></div>
 
+
 <div class="thresholdText">
-  KÖVES<br>FENÉKKÜSZÖB
+
+KÖVES FENÉKKÜSZÖB
+
 </div>
+
 
 
 <div class="rack"></div>
 
+
 <div class="rackText">
-  HIDEGVÍZ-CSATORNA
+
+HIDEGVÍZ-CSATORNA
+
 </div>
 
 
+
 <div class="pump pump1"></div>
+
 <div class="pump pump2"></div>
+
 
 
 <div class="plant">
 
+
 <div class="plantName">
-  PAKSI<br>ATOMERŐMŰ
+
+PAKSI<br>
+ATOMERŐMŰ
+
 </div>
+
 
 <div class="plantMw">
-${
-  Number.isFinite(total)
-    ? total + " MW"
-    : "— MW"
-}
-</div>
+
+${totalText}
 
 </div>
 
 
-<div class="flowArrow fa1">→</div>
-<div class="flowArrow fa2">→</div>
-<div class="flowArrow fa3">→</div>
+</div>
+
+
+
+<div class="flowArrow fa1">
+  →
+</div>
+
+
+<div class="flowArrow fa2">
+  →
+</div>
+
+
+<div class="flowArrow fa3">
+  →
+</div>
+
 
 
 <div class="sceneNote">
-  SEMATIKUS ÁBRA • NEM SZINTEZETT HOSSZ-SZELVÉNY
-</div>
+
+SEMATIKUS ÁBRA •
+
+A VÍZFELSZÍN RAJZA NEM SZINTEZETT HOSSZ-SZELVÉNY •
+
+A MÉRÉSI SZÁMOK IRÁNYADÓK
 
 </div>
 
+
+</div>
+
+
+</div>
+
+
+
+<!-- =========================================================
+     ALSÓ ÉLŐ ADATKÁRTYÁK
+========================================================== -->
 
 
 <div class="summaryRail">
@@ -2587,21 +2515,32 @@ ${
 
 <div class="summary">
 
+
 <div class="summaryLabel">
   DUNA PAKS
 </div>
 
+
 <div class="summaryValue blue">
+
 ${
-  Number.isFinite(water)
-    ? water + " cm"
+  Number.isFinite(
+    water
+  )
+    ? water +
+      " cm"
     : "—"
 }
+
 </div>
 
+
 <div class="summarySub">
-  ${shortTime(riverTime)}
+
+${shortTime(riverTime)}
+
 </div>
+
 
 </div>
 
@@ -2609,11 +2548,14 @@ ${
 
 <div class="summary">
 
+
 <div class="summaryLabel">
   FELVÍZ
 </div>
 
+
 <div class="summaryValue green">
+
 ${
   Number.isFinite(
     thresholdUp
@@ -2622,11 +2564,18 @@ ${
       " cm"
     : "—"
 }
+
 </div>
 
+
 <div class="summarySub">
-  ${shortTime(thresholdUpTime)}
+
+${shortTime(
+  thresholdUpTime
+)}
+
 </div>
+
 
 </div>
 
@@ -2634,11 +2583,14 @@ ${
 
 <div class="summary">
 
+
 <div class="summaryLabel">
   ALVÍZ
 </div>
 
+
 <div class="summaryValue blue">
+
 ${
   Number.isFinite(
     thresholdDown
@@ -2647,11 +2599,18 @@ ${
       " cm"
     : "—"
 }
+
 </div>
 
+
 <div class="summarySub">
-  ${shortTime(thresholdDownTime)}
+
+${shortTime(
+  thresholdDownTime
+)}
+
 </div>
+
 
 </div>
 
@@ -2659,23 +2618,35 @@ ${
 
 <div class="summary highlight">
 
+
 <div class="summaryLabel">
-  FELVÍZ − ALVÍZ
+  DUZZASZTÁS
 </div>
 
+
 <div class="summaryValue green">
+
 ${
-  Number.isFinite(uplift)
-    ? (uplift >= 0 ? "+" : "") +
+  Number.isFinite(
+    uplift
+  )
+    ? (
+        uplift >= 0
+          ? "+"
+          : ""
+      ) +
       uplift +
       " cm"
     : "—"
 }
+
 </div>
 
+
 <div class="summarySub">
-  MÉRT KÜLÖNBSÉG
+  FELVÍZ − ALVÍZ
 </div>
+
 
 </div>
 
@@ -2683,96 +2654,148 @@ ${
 
 <div class="summary">
 
+
 <div class="summaryLabel">
   HIDEGVÍZ-CSATORNA
 </div>
 
+
 <div class="summaryValue blue">
+
 ${
-  Number.isFinite(hvcs)
+  Number.isFinite(
+    hvcs
+  )
     ? hvcs +
       " cm"
     : "—"
 }
+
 </div>
+
 
 <div class="summarySub">
-  ${shortTime(hvcsTime)}
-</div>
 
-</div>
+${
+  Number.isFinite(
+    hvcsMbf
+  )
+    ? fmt2(
+        hvcsMbf
+      ) +
+      " mBf • "
+    : ""
+}
 
-</div>
-
-
-<div class="source">
-
-VÍZÜGY
-
-• FŐÁG ${shortTime(riverTime)}
-
-• FELVÍZ ${shortTime(thresholdUpTime)}
-
-• ALVÍZ ${shortTime(thresholdDownTime)}
-
-• HVCS ${shortTime(hvcsTime)}
-
-</div>
+${shortTime(hvcsTime)}
 
 </div>
 
 
+</div>
 
-<div class="share">
+
+</div>
+
+
+
+<!-- =========================================================
+     ALSÓ SOR
+========================================================== -->
+
+
+<div class="bottomBar">
+
+
+<div class="bottomInfo">
+
+ADATFORRÁSOK:
+OAH • VÍZÜGY
+
+&nbsp;&nbsp;|&nbsp;&nbsp;
+
+KILÉPŐ VÍZHŐ:
+NINCS FRISS HITELES ADAT
+
+</div>
+
+
+<div class="bottomShare">
+
 
 <a
- class="shareLink"
- href="${PUBLIC_URL}"
+  class="shareLink"
+  href="${PUBLIC_URL}"
 >
+
 🔗 ${PUBLIC_URL}
+
 </a>
 
+
 <button
- class="copy"
- id="copyButton"
+  class="copy"
+  id="copyButtonBottom"
 >
-MÁSOLÁS
+  MÁSOLÁS
 </button>
+
 
 </div>
 
 
 <div class="version">
-  ${VERSION}
-</div>
+
+${VERSION}
 
 </div>
+
+
+</div>
+
+
+</div>
+
 
 
 <div
- class="toast"
- id="toast"
+  class="toast"
+  id="toast"
 >
+
 Link másolva
+
 </div>
+
 
 
 <script>
 
+
 const PUBLIC_URL =
   "${PUBLIC_URL}";
 
+
 let selectedRange = {
-  power:6,
-  water:6
+
+  power:
+    6
 };
 
-let cache = {};
+
+let cache =
+  {};
 
 
-async function getHistory(hours){
+// ============================================================
+// HISTORY
+// ============================================================
 
-  try{
+async function getHistory(
+  hours
+) {
+
+  try {
 
     const response =
       await fetch(
@@ -2781,106 +2804,180 @@ async function getHistory(hours){
         "&v=" +
         Date.now(),
         {
-          cache:"no-store"
+          cache:
+            "no-store"
         }
       );
+
 
     const json =
       await response.json();
 
-    if(
+
+    if (
       json &&
-      json.ok === true &&
-      Array.isArray(json.data)
-    ){
+      json.ok ===
+      true &&
+      Array.isArray(
+        json.data
+      )
+    ) {
+
       return json.data;
     }
 
-  }catch{}
+
+  } catch {}
+
 
   return [];
 }
 
 
-async function loadHistory(hours){
+async function loadHistory(
+  hours
+) {
 
-  if(cache[hours]){
-    return cache[hours];
+  if (
+    cache[
+      hours
+    ]
+  ) {
+
+    return cache[
+      hours
+    ];
   }
 
-  const data =
-    await getHistory(hours);
 
-  cache[hours] = data;
+  const data =
+    await getHistory(
+      hours
+    );
+
+
+  cache[
+    hours
+  ] =
+    data;
+
 
   return data;
 }
 
+
+// ============================================================
+// TELJESÍTMÉNY GRAFIKON
+// ============================================================
 
 async function drawChart(
   canvasId,
   field,
   hours,
   unit
-){
+) {
 
   const canvas =
     document.getElementById(
       canvasId
     );
 
-  if(!canvas) return;
+
+  if (
+    !canvas
+  ) {
+
+    return;
+  }
+
 
   const rows =
-    await loadHistory(hours);
+    await loadHistory(
+      hours
+    );
+
 
   const data =
     rows
       .filter(
         row =>
-          row[field] !== null &&
-          row[field] !== undefined
+          row[
+            field
+          ] !== null &&
+          row[
+            field
+          ] !== undefined
       )
       .map(
         row => ({
-          x:Number(row.ts),
-          y:Number(row[field])
+
+          x:
+            Number(
+              row.ts
+            ),
+
+          y:
+            Number(
+              row[
+                field
+              ]
+            )
         })
       )
       .filter(
         point =>
-          Number.isFinite(point.x) &&
-          Number.isFinite(point.y)
+          Number.isFinite(
+            point.x
+          ) &&
+          Number.isFinite(
+            point.y
+          )
       )
       .sort(
-        (a,b)=>a.x-b.x
+        (
+          a,
+          b
+        ) =>
+          a.x -
+          b.x
       );
 
 
   const rect =
-    canvas.getBoundingClientRect();
+    canvas
+      .getBoundingClientRect();
+
 
   const ratio =
-    window.devicePixelRatio || 1;
+    window.devicePixelRatio ||
+    1;
+
 
   canvas.width =
     Math.max(
       1,
       Math.floor(
-        rect.width * ratio
+        rect.width *
+        ratio
       )
     );
+
 
   canvas.height =
     Math.max(
       1,
       Math.floor(
-        rect.height * ratio
+        rect.height *
+        ratio
       )
     );
 
+
   const ctx =
-    canvas.getContext("2d");
+    canvas.getContext(
+      "2d"
+    );
+
 
   ctx.setTransform(
     ratio,
@@ -2891,8 +2988,14 @@ async function drawChart(
     0
   );
 
-  const W = rect.width;
-  const H = rect.height;
+
+  const W =
+    rect.width;
+
+
+  const H =
+    rect.height;
+
 
   ctx.clearRect(
     0,
@@ -2901,17 +3004,28 @@ async function drawChart(
     H
   );
 
+
   const pad = {
-    left:38,
-    right:8,
-    top:8,
-    bottom:20
+
+    left:
+      42,
+
+    right:
+      8,
+
+    top:
+      8,
+
+    bottom:
+      20
   };
+
 
   const chartW =
     W -
     pad.left -
     pad.right;
+
 
   const chartH =
     H -
@@ -2922,46 +3036,69 @@ async function drawChart(
   ctx.strokeStyle =
     "rgba(115,145,170,.18)";
 
-  ctx.lineWidth = 1;
 
-  for(let i=0;i<=4;i++){
+  ctx.lineWidth =
+    1;
+
+
+  for (
+    let i = 0;
+    i <= 4;
+    i++
+  ) {
 
     const y =
       pad.top +
-      chartH * i / 4;
+      chartH *
+      i /
+      4;
+
 
     ctx.beginPath();
+
 
     ctx.moveTo(
       pad.left,
       y
     );
 
+
     ctx.lineTo(
-      W-pad.right,
+      W -
+      pad.right,
       y
     );
+
 
     ctx.stroke();
   }
 
 
-  if(data.length===0){
+  if (
+    data.length ===
+    0
+  ) {
 
     ctx.fillStyle =
       "#718397";
 
+
     ctx.font =
       "10px -apple-system";
+
 
     ctx.textAlign =
       "left";
 
+
     ctx.fillText(
       "Új valódi mérésre várunk…",
-      pad.left+8,
-      H/2
+      pad.left +
+      8,
+      H /
+      2
     );
+
 
     return;
   }
@@ -2969,88 +3106,156 @@ async function drawChart(
 
   let minY =
     Math.min(
-      ...data.map(p=>p.y)
+      ...data.map(
+        point =>
+          point.y
+      )
     );
+
 
   let maxY =
     Math.max(
-      ...data.map(p=>p.y)
+      ...data.map(
+        point =>
+          point.y
+      )
     );
 
 
-  if(minY===maxY){
+  if (
+    minY ===
+    maxY
+  ) {
 
     const delta =
-      field==="water"
-        ? 2
-        : Math.max(
-            1,
-            Math.abs(minY)*.02
-          );
+      Math.max(
+        1,
+        Math.abs(
+          minY
+        ) *
+        .02
+      );
 
-    minY -= delta;
-    maxY += delta;
+
+    minY -=
+      delta;
+
+
+    maxY +=
+      delta;
   }
 
 
   const margin =
     Math.max(
       1,
-      (maxY-minY)*.15
+      (
+        maxY -
+        minY
+      ) *
+      .15
     );
 
-  minY -= margin;
-  maxY += margin;
+
+  minY -=
+    margin;
+
+
+  maxY +=
+    margin;
 
 
   const maxX =
     Date.now();
 
+
   const minX =
     maxX -
-    hours*60*60*1000;
+    hours *
+    60 *
+    60 *
+    1000;
 
 
   const sx =
     x =>
       pad.left +
-      ((x-minX)/(maxX-minX)) *
+      (
+        (
+          x -
+          minX
+        ) /
+        (
+          maxX -
+          minX
+        )
+      ) *
       chartW;
 
 
   const sy =
     y =>
       pad.top +
-      ((maxY-y)/(maxY-minY)) *
+      (
+        (
+          maxY -
+          y
+        ) /
+        (
+          maxY -
+          minY
+        )
+      ) *
       chartH;
 
 
   ctx.fillStyle =
     "#708296";
 
+
   ctx.font =
     "8px -apple-system";
+
 
   ctx.textAlign =
     "right";
 
 
-  for(let i=0;i<=2;i++){
+  for (
+    let i = 0;
+    i <= 2;
+    i++
+  ) {
 
     const value =
       maxY -
-      (maxY-minY)*i/2;
+      (
+        maxY -
+        minY
+      ) *
+      i /
+      2;
+
 
     const y =
       pad.top +
-      chartH*i/2;
+      chartH *
+      i /
+      2;
+
 
     ctx.fillText(
-      Math.round(value) +
+      Math.round(
+        value
+      ) +
       " " +
       unit,
-      pad.left-4,
-      y+3
+
+      pad.left -
+      4,
+
+      y +
+      3
     );
   }
 
@@ -3058,316 +3263,291 @@ async function drawChart(
   ctx.textAlign =
     "center";
 
+
   const divisions =
-    hours>=240
+    hours >=
+    240
+
       ? 4
+
       : 3;
 
 
-  for(
-    let i=0;
-    i<=divisions;
+  for (
+    let i = 0;
+    i <= divisions;
     i++
-  ){
+  ) {
 
     const timestamp =
       minX +
-      (maxX-minX) *
+      (
+        maxX -
+        minX
+      ) *
       i /
       divisions;
 
+
     const date =
-      new Date(timestamp);
+      new Date(
+        timestamp
+      );
+
 
     const label =
-      hours>=240
-        ? date.toLocaleDateString(
-            "hu-HU",
-            {
-              month:"2-digit",
-              day:"2-digit"
-            }
-          )
-        : date.toLocaleTimeString(
-            "hu-HU",
-            {
-              hour:"2-digit",
-              minute:"2-digit"
-            }
-          );
+      hours >=
+      240
+
+        ? date
+            .toLocaleDateString(
+              "hu-HU",
+              {
+                month:
+                  "2-digit",
+
+                day:
+                  "2-digit"
+              }
+            )
+
+        : date
+            .toLocaleTimeString(
+              "hu-HU",
+              {
+                hour:
+                  "2-digit",
+
+                minute:
+                  "2-digit"
+              }
+            );
+
 
     ctx.fillText(
       label,
-      sx(timestamp),
-      H-5
+      sx(
+        timestamp
+      ),
+      H -
+      5
     );
   }
 
 
-  const lineColor =
-    field==="power"
-      ? "#66df57"
-      : "#49a9ff";
-
   ctx.strokeStyle =
-    lineColor;
+    "#66df57";
+
 
   ctx.fillStyle =
-    lineColor;
+    "#66df57";
+
 
   ctx.lineWidth =
     2.2;
 
+
   ctx.lineJoin =
-    field==="water"
-      ? "miter"
-      : "round";
+    "round";
+
 
   ctx.lineCap =
-    field==="water"
-      ? "butt"
-      : "round";
-
-
-  if(data.length===1){
-
-    const point = data[0];
-
-    ctx.beginPath();
-
-    ctx.moveTo(
-      Math.max(
-        pad.left,
-        sx(point.x)
-      ),
-      sy(point.y)
-    );
-
-    ctx.lineTo(
-      sx(maxX),
-      sy(point.y)
-    );
-
-    ctx.stroke();
-
-    ctx.beginPath();
-
-    ctx.arc(
-      sx(maxX),
-      sy(point.y),
-      3.5,
-      0,
-      Math.PI*2
-    );
-
-    ctx.fill();
-
-    return;
-  }
+    "round";
 
 
   ctx.beginPath();
 
 
-  if(field==="water"){
+  data.forEach(
+    (
+      point,
+      index
+    ) => {
 
-    const first =
-      data[0];
+      const x =
+        sx(
+          point.x
+        );
 
-    let firstX =
-      sx(first.x);
 
-    if(firstX<pad.left){
-      firstX=pad.left;
+      const y =
+        sy(
+          point.y
+        );
+
+
+      if (
+        index ===
+        0
+      ) {
+
+        ctx.moveTo(
+          x,
+          y
+        );
+
+      } else {
+
+        ctx.lineTo(
+          x,
+          y
+        );
+      }
     }
-
-    ctx.moveTo(
-      firstX,
-      sy(first.y)
-    );
-
-
-    for(
-      let i=1;
-      i<data.length;
-      i++
-    ){
-
-      const previous =
-        data[i-1];
-
-      const current =
-        data[i];
-
-      const currentX =
-        sx(current.x);
-
-      if(currentX<pad.left){
-        continue;
-      }
-
-      if(
-        currentX >
-        W-pad.right
-      ){
-        break;
-      }
-
-      ctx.lineTo(
-        currentX,
-        sy(previous.y)
-      );
-
-      ctx.lineTo(
-        currentX,
-        sy(current.y)
-      );
-    }
-
-
-    const last =
-      data[data.length-1];
-
-    ctx.lineTo(
-      sx(maxX),
-      sy(last.y)
-    );
-
-  }else{
-
-    data.forEach(
-      (point,index)=>{
-
-        const x =
-          sx(point.x);
-
-        const y =
-          sy(point.y);
-
-        if(index===0){
-          ctx.moveTo(x,y);
-        }else{
-          ctx.lineTo(x,y);
-        }
-
-      }
-    );
-  }
+  );
 
 
   ctx.stroke();
 
 
   const last =
-    data[data.length-1];
+    data[
+      data.length -
+      1
+    ];
+
 
   ctx.beginPath();
 
+
   ctx.arc(
-    field==="water"
-      ? sx(maxX)
-      : sx(last.x),
-    sy(last.y),
+    sx(
+      last.x
+    ),
+    sy(
+      last.y
+    ),
     3.5,
     0,
-    Math.PI*2
+    Math.PI *
+    2
   );
+
 
   ctx.fill();
 }
 
 
-async function redraw(){
-
-  cache={};
-
-  await Promise.all([
-
-    drawChart(
-      "powerChart",
-      "power",
-      selectedRange.power,
-      "MW"
-    ),
-
-    drawChart(
-      "waterChart",
-      "water",
-      selectedRange.water,
-      "cm"
-    )
-
-  ]);
-}
-
+// ============================================================
+// IDŐTARTOMÁNY
+// ============================================================
 
 function setRange(
-  chart,
   hours,
   button
-){
+) {
 
-  selectedRange[chart] =
+  selectedRange.power =
     hours;
+
 
   document
     .querySelectorAll(
-      '[data-chart="' +
-      chart +
-      '"]'
+      ".period"
     )
     .forEach(
       element =>
-        element.classList
-          .remove("active")
+        element
+          .classList
+          .remove(
+            "active"
+          )
     );
 
-  button.classList
-    .add("active");
 
-  cache={};
-
-  if(chart==="power"){
-
-    drawChart(
-      "powerChart",
-      "power",
-      hours,
-      "MW"
+  button
+    .classList
+    .add(
+      "active"
     );
 
-  }else{
 
-    drawChart(
-      "waterChart",
-      "water",
-      hours,
-      "cm"
-    );
-  }
+  cache =
+    {};
+
+
+  drawChart(
+    "powerChart",
+    "power",
+    hours,
+    "MW"
+  );
 }
 
 
 document
-  .querySelectorAll(".period")
-  .forEach(button=>{
+  .querySelectorAll(
+    ".period"
+  )
+  .forEach(
+    button => {
 
-    button.addEventListener(
-      "click",
-      ()=>{
+      button.addEventListener(
+        "click",
+        () => {
 
-        setRange(
-          button.dataset.chart,
-          Number(
-            button.dataset.hours
-          ),
-          button
+          setRange(
+            Number(
+              button
+                .dataset
+                .hours
+            ),
+            button
+          );
+        }
+      );
+    }
+  );
+
+
+// ============================================================
+// LINK MÁSOLÁS
+// ============================================================
+
+async function copyLink() {
+
+  try {
+
+    await navigator
+      .clipboard
+      .writeText(
+        PUBLIC_URL
+      );
+
+
+    const toast =
+      document
+        .getElementById(
+          "toast"
         );
 
-      }
+
+    toast
+      .classList
+      .add(
+        "show"
+      );
+
+
+    setTimeout(
+      () =>
+        toast
+          .classList
+          .remove(
+            "show"
+          ),
+      1400
     );
 
-  });
+
+  } catch {
+
+    window.prompt(
+      "Másold a linket:",
+      PUBLIC_URL
+    );
+  }
+}
 
 
 document
@@ -3376,86 +3556,68 @@ document
   )
   ?.addEventListener(
     "click",
-    async()=>{
-
-      try{
-
-        await navigator
-          .clipboard
-          .writeText(
-            PUBLIC_URL
-          );
-
-        const toast =
-          document.getElementById(
-            "toast"
-          );
-
-        toast.classList
-          .add("show");
-
-        setTimeout(
-          () =>
-            toast.classList
-              .remove("show"),
-          1400
-        );
-
-      }catch{
-
-        window.prompt(
-          "Másold a linket:",
-          PUBLIC_URL
-        );
-
-      }
-
-    }
+    copyLink
   );
 
 
-redraw();
+document
+  .getElementById(
+    "copyButtonBottom"
+  )
+  ?.addEventListener(
+    "click",
+    copyLink
+  );
+
+
+// ============================================================
+// START
+// ============================================================
+
+drawChart(
+  "powerChart",
+  "power",
+  6,
+  "MW"
+);
 
 
 window.addEventListener(
   "resize",
-  ()=>{
+  () => {
 
     clearTimeout(
-      window.__resizeTimer
+      window
+        .__resizeTimer
     );
 
-    window.__resizeTimer =
-      setTimeout(
-        redraw,
-        150
-      );
 
+    window
+      .__resizeTimer =
+        setTimeout(
+          () => {
+
+            cache =
+              {};
+
+
+            drawChart(
+              "powerChart",
+              "power",
+              selectedRange.power,
+              "MW"
+            );
+
+          },
+          150
+        );
   }
 );
 
+
 </script>
 
+
 </body>
+
 </html>`;
-
-
-    return new Response(
-      html,
-      {
-        status:200,
-        headers:{
-          "content-type":
-            "text/html;charset=UTF-8",
-
-          "cache-control":
-            "no-store, no-cache, must-revalidate",
-
-          "pragma":
-            "no-cache"
-        }
-      }
-    );
-
-  }
-};
