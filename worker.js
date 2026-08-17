@@ -1,27 +1,1286 @@
-const html = `<!doctype html>
+const OAH_URL =
+  "https://tranem.haea.gov.hu/web/v3/OAHPortal.nsf/web?OpenAgent=&article=paksnpp";
+
+const VIZ_URL =
+  "https://www.vizugy.hu/?AllomasVOA=16496188-97AB-11D4-BB62-00508BA24287&mapData=OrasIdosor&mapModule=OpGrafikon";
+
+const HVCS_URL =
+  "https://www.vizugy.hu/?AllomasVOA=762D32FE-1414-4A35-9121-6FCE1EED55B4&mapData=OrasIdosor&mapModule=OpGrafikon";
+
+const THRESHOLD_UP_URL =
+  "https://www.vizugy.hu/?AllomasVOA=3472EA24-55EA-4B05-B1D7-3695034CADB9&mapData=OrasIdosor&mapModule=OpGrafikon";
+
+const THRESHOLD_DOWN_URL =
+  "https://www.vizugy.hu/?AllomasVOA=D79FBC2B-EBE1-4BBE-A431-B3FA46D638B8&mapData=OrasIdosor&mapModule=OpGrafikon";
+
+const PUBLIC_URL =
+  "https://paks-monitor.laszlo-iglodi.workers.dev";
+
+const FB_IMAGE_RAW =
+  "https://raw.githubusercontent.com/laszloiglodi-beep/Paks-monitor/main/60CF06BF-2068-420D-AC41-224FB3B75358.png";
+
+const VERSION = "VPAKS01";
+
+const PAKS_ZERO_MBF = 85.380;
+const LOCAL_ZERO_MBF = 85.000;
+
+
+// ============================================================
+// SEGÉDFÜGGVÉNYEK
+// ============================================================
+
+function clean(html) {
+  return String(html || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&#160;/gi, " ")
+    .replace(/&minus;/gi, "-")
+    .replace(/&#8722;/gi, "-")
+    .replace(/&deg;/gi, "°")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function fmt1(value) {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value)
+  )
+    ? value.toLocaleString("hu-HU", {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1
+      })
+    : "—";
+}
+
+function fmt2(value) {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value)
+  )
+    ? value.toLocaleString("hu-HU", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      })
+    : "—";
+}
+
+function shortTime(value) {
+  const m =
+    String(value || "")
+      .match(/(\d{2}:\d{2})/);
+
+  return m
+    ? m[1]
+    : "—";
+}
+
+
+// ============================================================
+// BUDAPEST IDŐ
+// ============================================================
+
+function getBudapestOffset(timestamp) {
+  const formatter =
+    new Intl.DateTimeFormat(
+      "en-GB",
+      {
+        timeZone: "Europe/Budapest",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23"
+      }
+    );
+
+  const parts =
+    formatter.formatToParts(
+      new Date(timestamp)
+    );
+
+  const values = {};
+
+  for (const p of parts) {
+    if (p.type !== "literal") {
+      values[p.type] =
+        Number(p.value);
+    }
+  }
+
+  const localAsUTC =
+    Date.UTC(
+      values.year,
+      values.month - 1,
+      values.day,
+      values.hour,
+      values.minute,
+      values.second
+    );
+
+  return (
+    localAsUTC -
+    timestamp
+  );
+}
+
+function parseHuTimestamp(value) {
+  const m =
+    String(value || "")
+      .match(
+        /(\d{4})\.\s*(\d{2})\.\s*(\d{2})\.?\s*(\d{2}):(\d{2})/
+      );
+
+  if (!m) {
+    return null;
+  }
+
+  const desired =
+    Date.UTC(
+      Number(m[1]),
+      Number(m[2]) - 1,
+      Number(m[3]),
+      Number(m[4]),
+      Number(m[5]),
+      0
+    );
+
+  let ts =
+    desired;
+
+  for (let i = 0; i < 2; i++) {
+    ts =
+      desired -
+      getBudapestOffset(ts);
+  }
+
+  return Number.isFinite(ts)
+    ? ts
+    : null;
+}
+
+function cmToMbf(
+  cm,
+  zero
+) {
+  return Number.isFinite(cm)
+    ? zero + cm / 100
+    : null;
+}
+
+function direction(
+  current,
+  previous
+) {
+  if (
+    !Number.isFinite(current) ||
+    !Number.isFinite(previous)
+  ) {
+    return {
+      symbol: "→",
+      cls: "flat"
+    };
+  }
+
+  if (current > previous) {
+    return {
+      symbol: "↑",
+      cls: "up"
+    };
+  }
+
+  if (current < previous) {
+    return {
+      symbol: "↓",
+      cls: "down"
+    };
+  }
+
+  return {
+    symbol: "→",
+    cls: "flat"
+  };
+}
+
+
+// ============================================================
+// VÍZÜGY PARSER
+// ============================================================
+
+async function fetchVizStation(
+  url,
+  wantExtras = false
+) {
+  const result = {
+    value: null,
+    flow: null,
+    temp: null,
+    time: "—",
+    timestamp: null,
+    previousValue: null,
+    status: "OK"
+  };
+
+  try {
+    const response =
+      await fetch(
+        url,
+        {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (compatible; VPAKS01)"
+          },
+          cf: {
+            cacheTtl: 60,
+            cacheEverything: false
+          }
+        }
+      );
+
+    if (!response.ok) {
+      throw new Error(
+        "VIZ HTTP " +
+        response.status
+      );
+    }
+
+    const text =
+      clean(
+        await response.text()
+      );
+
+    const rowRegex =
+      /(20\d{2}\.\s*\d{2}\.\s*\d{2}\.?\s*\d{2}:\d{2})\s+(-?\d+)\s+(-|\d+(?:[.,]\d+)?)\s+(-|\d+(?:[.,]\d+)?)\s+(-|\d+(?:[.,]\d+)?)/g;
+
+    const rows = [];
+    let match;
+
+    while (
+      (
+        match =
+          rowRegex.exec(text)
+      ) !== null
+    ) {
+      const timestamp =
+        parseHuTimestamp(
+          match[1]
+        );
+
+      if (
+        !Number.isFinite(timestamp)
+      ) {
+        continue;
+      }
+
+      rows.push({
+        timestamp,
+        time: match[1],
+        water: Number(match[2]),
+        flow: match[3],
+        temp1: match[4],
+        temp2: match[5]
+      });
+    }
+
+    rows.sort(
+      (a, b) =>
+        a.timestamp -
+        b.timestamp
+    );
+
+    if (!rows.length) {
+      result.status =
+        "ADATHIBA";
+
+      return result;
+    }
+
+    const latest =
+      rows[
+        rows.length - 1
+      ];
+
+    const previous =
+      rows.length > 1
+        ? rows[
+            rows.length - 2
+          ]
+        : null;
+
+    if (
+      Number.isFinite(
+        latest.water
+      ) &&
+      latest.water > -1000 &&
+      latest.water < 1000
+    ) {
+      result.value =
+        latest.water;
+    }
+
+    result.previousValue =
+      previous &&
+      Number.isFinite(
+        previous.water
+      )
+        ? previous.water
+        : null;
+
+    result.time =
+      latest.time;
+
+    result.timestamp =
+      latest.timestamp;
+
+    if (wantExtras) {
+      if (
+        latest.flow !== "-"
+      ) {
+        const f =
+          Number(
+            latest.flow.replace(
+              ",",
+              "."
+            )
+          );
+
+        if (
+          Number.isFinite(f) &&
+          f >= 0 &&
+          f <= 20000
+        ) {
+          result.flow = f;
+        }
+      }
+
+      for (
+        const raw of
+        [
+          latest.temp1,
+          latest.temp2
+        ]
+      ) {
+        if (
+          !raw ||
+          raw === "-"
+        ) {
+          continue;
+        }
+
+        const t =
+          Number(
+            raw.replace(
+              ",",
+              "."
+            )
+          );
+
+        if (
+          Number.isFinite(t) &&
+          t >= 0 &&
+          t <= 40
+        ) {
+          result.temp = t;
+          break;
+        }
+      }
+    }
+
+    if (
+      !Number.isFinite(
+        result.value
+      )
+    ) {
+      result.status =
+        "ADATHIBA";
+    }
+
+    return result;
+
+  } catch (error) {
+    result.status =
+      "KAPCSOLATI HIBA";
+
+    console.log(
+      "VIZ ERROR:",
+      error?.message ||
+      String(error)
+    );
+
+    return result;
+  }
+}
+
+
+// ============================================================
+// D1
+// ============================================================
+
+async function ensureDB(env) {
+  if (
+    !env ||
+    !env.DB
+  ) {
+    throw new Error(
+      "DB binding missing"
+    );
+  }
+
+  await env.DB
+    .prepare(
+      `CREATE TABLE IF NOT EXISTS measurements (
+        ts INTEGER PRIMARY KEY,
+        power INTEGER,
+        water INTEGER,
+        flow REAL,
+        temp REAL,
+        hvcs INTEGER,
+        threshold_up INTEGER,
+        threshold_down INTEGER
+      )`
+    )
+    .run();
+
+  for (
+    const sql of
+    [
+      `ALTER TABLE measurements ADD COLUMN hvcs INTEGER`,
+      `ALTER TABLE measurements ADD COLUMN threshold_up INTEGER`,
+      `ALTER TABLE measurements ADD COLUMN threshold_down INTEGER`
+    ]
+  ) {
+    try {
+      await env.DB
+        .prepare(sql)
+        .run();
+    } catch {}
+  }
+}
+
+
+// ============================================================
+// AKTUÁLIS ADATOK
+// ============================================================
+
+async function getCurrentData() {
+  let blocks =
+    [
+      "—",
+      "—",
+      "—",
+      "—"
+    ];
+
+  let oahTime =
+    "—";
+
+  let oahTimestamp =
+    null;
+
+  let oahStatus =
+    "OK";
+
+
+  // OAH
+
+  try {
+    const response =
+      await fetch(
+        OAH_URL,
+        {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (compatible; VPAKS01)"
+          },
+          cf: {
+            cacheTtl: 60,
+            cacheEverything: false
+          }
+        }
+      );
+
+    if (!response.ok) {
+      throw new Error(
+        "OAH HTTP " +
+        response.status
+      );
+    }
+
+    const text =
+      clean(
+        await response.text()
+      );
+
+    const date =
+      text.match(
+        /Mérés dátuma:\s*([0-9]{4}\.\s*[0-9]{2}\.\s*[0-9]{2}\.?\s*[0-9]{2}:[0-9]{2})/i
+      );
+
+    if (date) {
+      oahTime =
+        date[1];
+
+      oahTimestamp =
+        parseHuTimestamp(
+          date[1]
+        );
+    }
+
+    const mainPower =
+      text.match(
+        /1\.\s*blokk\s*2\.\s*blokk\s*3\.\s*blokk\s*4\.\s*blokk\s*(\d+)\s*MW\s*(\d+)\s*MW\s*(\d+)\s*MW\s*(\d+)\s*MW/i
+      );
+
+    if (mainPower) {
+      blocks = [
+        mainPower[1],
+        mainPower[2],
+        mainPower[3],
+        mainPower[4]
+      ];
+    } else {
+      const values = [];
+
+      for (
+        let i = 1;
+        i <= 4;
+        i++
+      ) {
+        const re =
+          new RegExp(
+            i +
+            "\\.\\s*blokk[^0-9]{0,150}(\\d+)\\s*MW",
+            "i"
+          );
+
+        const m =
+          text.match(re);
+
+        if (m) {
+          values.push(
+            m[1]
+          );
+        }
+      }
+
+      if (
+        values.length === 4
+      ) {
+        blocks =
+          values;
+      } else {
+        oahStatus =
+          "ADATHIBA";
+      }
+    }
+
+    if (
+      !Number.isFinite(
+        oahTimestamp
+      )
+    ) {
+      oahStatus =
+        oahStatus === "OK"
+          ? "IDŐHIBA"
+          : oahStatus;
+    }
+
+  } catch (error) {
+    oahStatus =
+      "KAPCSOLATI HIBA";
+
+    console.log(
+      "OAH ERROR:",
+      error?.message ||
+      String(error)
+    );
+  }
+
+
+  // VÍZÜGY
+
+  const [
+    river,
+    hvcs,
+    thresholdUp,
+    thresholdDown
+  ] =
+    await Promise.all(
+      [
+        fetchVizStation(
+          VIZ_URL,
+          true
+        ),
+        fetchVizStation(
+          HVCS_URL,
+          false
+        ),
+        fetchVizStation(
+          THRESHOLD_UP_URL,
+          false
+        ),
+        fetchVizStation(
+          THRESHOLD_DOWN_URL,
+          false
+        )
+      ]
+    );
+
+
+  const validBlocks =
+    blocks.every(
+      value =>
+        /^\d+$/.test(
+          String(value)
+        )
+    );
+
+
+  const total =
+    validBlocks
+      ? blocks.reduce(
+          (
+            sum,
+            value
+          ) =>
+            sum +
+            Number(value),
+          0
+        )
+      : null;
+
+
+  const uplift =
+    Number.isFinite(
+      thresholdUp.value
+    ) &&
+    Number.isFinite(
+      thresholdDown.value
+    )
+      ? thresholdUp.value -
+        thresholdDown.value
+      : null;
+
+
+  const riverMbf =
+    cmToMbf(
+      river.value,
+      PAKS_ZERO_MBF
+    );
+
+
+  const hvcsMbf =
+    cmToMbf(
+      hvcs.value,
+      LOCAL_ZERO_MBF
+    );
+
+
+  const thresholdUpMbf =
+    cmToMbf(
+      thresholdUp.value,
+      LOCAL_ZERO_MBF
+    );
+
+
+  const thresholdDownMbf =
+    cmToMbf(
+      thresholdDown.value,
+      LOCAL_ZERO_MBF
+    );
+
+
+  return {
+    blocks,
+    total,
+
+    water:
+      river.value,
+
+    flow:
+      river.flow,
+
+    temp:
+      river.temp,
+
+    riverTime:
+      river.time,
+
+    riverTimestamp:
+      river.timestamp,
+
+    riverPrevious:
+      river.previousValue,
+
+    riverMbf,
+
+    hvcs:
+      hvcs.value,
+
+    hvcsTime:
+      hvcs.time,
+
+    hvcsTimestamp:
+      hvcs.timestamp,
+
+    hvcsPrevious:
+      hvcs.previousValue,
+
+    hvcsMbf,
+
+    thresholdUp:
+      thresholdUp.value,
+
+    thresholdUpTime:
+      thresholdUp.time,
+
+    thresholdUpTimestamp:
+      thresholdUp.timestamp,
+
+    thresholdUpPrevious:
+      thresholdUp.previousValue,
+
+    thresholdUpMbf,
+
+    thresholdDown:
+      thresholdDown.value,
+
+    thresholdDownTime:
+      thresholdDown.time,
+
+    thresholdDownTimestamp:
+      thresholdDown.timestamp,
+
+    thresholdDownPrevious:
+      thresholdDown.previousValue,
+
+    thresholdDownMbf,
+
+    uplift,
+
+    oahTime,
+    oahTimestamp,
+    oahStatus
+  };
+}
+
+
+// ============================================================
+// D1 MENTÉS
+// ============================================================
+
+async function upsertField(
+  env,
+  ts,
+  field,
+  value
+) {
+  if (
+    !Number.isFinite(ts) ||
+    !Number.isFinite(value)
+  ) {
+    return;
+  }
+
+  const allowed =
+    new Set(
+      [
+        "power",
+        "water",
+        "flow",
+        "temp",
+        "hvcs",
+        "threshold_up",
+        "threshold_down"
+      ]
+    );
+
+  if (
+    !allowed.has(field)
+  ) {
+    return;
+  }
+
+  await env.DB
+    .prepare(
+      `INSERT INTO measurements
+       (ts, ${field})
+       VALUES (?, ?)
+       ON CONFLICT(ts)
+       DO UPDATE SET
+       ${field}=excluded.${field}`
+    )
+    .bind(
+      ts,
+      value
+    )
+    .run();
+}
+
+
+async function saveMeasurement(
+  env,
+  data
+) {
+  try {
+    await ensureDB(env);
+
+    await upsertField(
+      env,
+      data.oahTimestamp,
+      "power",
+      data.total
+    );
+
+    await upsertField(
+      env,
+      data.riverTimestamp,
+      "water",
+      data.water
+    );
+
+    await upsertField(
+      env,
+      data.riverTimestamp,
+      "flow",
+      data.flow
+    );
+
+    await upsertField(
+      env,
+      data.riverTimestamp,
+      "temp",
+      data.temp
+    );
+
+    await upsertField(
+      env,
+      data.hvcsTimestamp,
+      "hvcs",
+      data.hvcs
+    );
+
+    await upsertField(
+      env,
+      data.thresholdUpTimestamp,
+      "threshold_up",
+      data.thresholdUp
+    );
+
+    await upsertField(
+      env,
+      data.thresholdDownTimestamp,
+      "threshold_down",
+      data.thresholdDown
+    );
+
+    const cutoff =
+      Date.now() -
+      11 *
+      24 *
+      60 *
+      60 *
+      1000;
+
+    await env.DB
+      .prepare(
+        `DELETE FROM measurements
+         WHERE ts < ?`
+      )
+      .bind(cutoff)
+      .run();
+
+  } catch (error) {
+    console.log(
+      "D1 SAVE ERROR:",
+      error?.message ||
+      String(error)
+    );
+  }
+}
+
+
+// ============================================================
+// WORKER
+// ============================================================
+
+export default {
+
+  async scheduled(
+    controller,
+    env,
+    ctx
+  ) {
+    const data =
+      await getCurrentData();
+
+    ctx.waitUntil(
+      saveMeasurement(
+        env,
+        data
+      )
+    );
+  },
+
+
+  async fetch(
+    request,
+    env,
+    ctx
+  ) {
+    const url =
+      new URL(
+        request.url
+      );
+
+
+    // VERSION
+
+    if (
+      url.pathname ===
+      "/version"
+    ) {
+      return new Response(
+        VERSION,
+        {
+          headers: {
+            "content-type":
+              "text/plain;charset=UTF-8",
+            "cache-control":
+              "no-store"
+          }
+        }
+      );
+    }
+
+
+    // FACEBOOK IMAGE
+
+    if (
+      url.pathname ===
+      "/facebook-image"
+    ) {
+      try {
+        const response =
+          await fetch(
+            FB_IMAGE_RAW
+          );
+
+        if (!response.ok) {
+          return new Response(
+            "Image not found",
+            {
+              status: 404
+            }
+          );
+        }
+
+        return new Response(
+          response.body,
+          {
+            headers: {
+              "content-type":
+                "image/png",
+              "cache-control":
+                "public,max-age=86400"
+            }
+          }
+        );
+
+      } catch {
+        return new Response(
+          "Image unavailable",
+          {
+            status: 503
+          }
+        );
+      }
+    }
+
+
+    // HISTORY
+
+    if (
+      url.pathname ===
+      "/api/history"
+    ) {
+      try {
+        await ensureDB(env);
+
+        let hours =
+          Number(
+            url.searchParams
+              .get("hours") ||
+            6
+          );
+
+        if (
+          ![
+            6,
+            24,
+            240
+          ].includes(hours)
+        ) {
+          hours = 6;
+        }
+
+        const cutoff =
+          Date.now() -
+          hours *
+          60 *
+          60 *
+          1000;
+
+        const result =
+          await env.DB
+            .prepare(
+              `SELECT
+                 ts,
+                 power,
+                 water,
+                 flow,
+                 temp,
+                 hvcs,
+                 threshold_up,
+                 threshold_down
+               FROM measurements
+               WHERE ts >= ?
+               ORDER BY ts ASC`
+            )
+            .bind(cutoff)
+            .all();
+
+        return new Response(
+          JSON.stringify(
+            {
+              ok: true,
+              version: VERSION,
+              data:
+                result.results ||
+                []
+            }
+          ),
+          {
+            headers: {
+              "content-type":
+                "application/json;charset=UTF-8",
+              "cache-control":
+                "no-store"
+            }
+          }
+        );
+
+      } catch (error) {
+        return new Response(
+          JSON.stringify(
+            {
+              ok: false,
+              version: VERSION,
+              data: [],
+              error:
+                error?.message ||
+                String(error)
+            }
+          ),
+          {
+            headers: {
+              "content-type":
+                "application/json;charset=UTF-8",
+              "cache-control":
+                "no-store"
+            }
+          }
+        );
+      }
+    }
+
+
+    // CURRENT
+
+    const data =
+      await getCurrentData();
+
+    ctx.waitUntil(
+      saveMeasurement(
+        env,
+        data
+      )
+    );
+
+
+    const {
+      blocks,
+      total,
+
+      water,
+      flow,
+      temp,
+
+      riverTime,
+      riverPrevious,
+      riverMbf,
+
+      hvcs,
+      hvcsTime,
+      hvcsPrevious,
+      hvcsMbf,
+
+      thresholdUp,
+      thresholdUpTime,
+      thresholdUpPrevious,
+      thresholdUpMbf,
+
+      thresholdDown,
+      thresholdDownTime,
+      thresholdDownPrevious,
+      thresholdDownMbf,
+
+      uplift,
+
+      oahTime,
+      oahStatus
+    } = data;
+
+
+    const totalText =
+      Number.isFinite(total)
+        ? `${total} MW`
+        : "— MW";
+
+    const waterText =
+      Number.isFinite(water)
+        ? `${water} cm`
+        : "— cm";
+
+    const flowText =
+      Number.isFinite(flow)
+        ? `${fmt1(flow)} m³/s`
+        : "— m³/s";
+
+    const tempText =
+      Number.isFinite(temp)
+        ? `${fmt1(temp)} °C`
+        : "— °C";
+
+
+    const shutdownDistance =
+      Number.isFinite(water)
+        ? water + 134
+        : null;
+
+    const safetyDistance =
+      Number.isFinite(water)
+        ? water + 144
+        : null;
+
+
+    const riverDir =
+      direction(
+        water,
+        riverPrevious
+      );
+
+    const hvcsDir =
+      direction(
+        hvcs,
+        hvcsPrevious
+      );
+
+    const upDir =
+      direction(
+        thresholdUp,
+        thresholdUpPrevious
+      );
+
+    const downDir =
+      direction(
+        thresholdDown,
+        thresholdDownPrevious
+      );
+
+
+    let riverClass =
+      "normal";
+
+    let riverLabel =
+      "NORMÁL";
+
+
+    if (
+      Number.isFinite(water)
+    ) {
+      if (
+        water <= -144
+      ) {
+        riverClass =
+          "danger";
+
+        riverLabel =
+          "KRITIKUS";
+
+      } else if (
+        water <= -134
+      ) {
+        riverClass =
+          "warning";
+
+        riverLabel =
+          "LEÁLLÁSI TARTOMÁNY";
+
+      } else if (
+        water <= -129
+      ) {
+        riverClass =
+          "warning";
+
+        riverLabel =
+          "FIGYELMEZTETÉS";
+      }
+    }
+
+
+    let markerPct = 0;
+
+    if (
+      Number.isFinite(water)
+    ) {
+      markerPct =
+        (
+          (-110 - water) /
+          40
+        ) *
+        100;
+
+      markerPct =
+        Math.max(
+          0,
+          Math.min(
+            100,
+            markerPct
+          )
+        );
+    }
+
+
+    const html = `<!doctype html>
 <html lang="hu">
 
 <head>
 
 <meta charset="utf-8">
 
-<!--
-  V10 FEKVŐ / ZOOMOLHATÓ NÉZET
-
-  - fix 1500 px széles dashboard
-  - álló telefonon az egész egyben látszik
-  - fekvő telefonon nagyobb lesz
-  - pinch zoom engedélyezve
--->
-
 <meta
   name="viewport"
-  content="width=1536,initial-scale=1,minimum-scale=0.15,maximum-scale=5,user-scalable=yes,viewport-fit=cover"
+  content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=5,user-scalable=yes,viewport-fit=cover"
 >
 
 <meta
   name="theme-color"
-  content="#020811"
+  content="#000000"
 >
 
 <meta
@@ -34,19 +1293,18 @@ const html = `<!doctype html>
   content="black"
 >
 
-<title>
-  ⚛️ PAKS MONITOR V10
-</title>
+<title>⚛️ PAKS MONITOR</title>
 
 <meta
   property="og:title"
-  content="⚛️ PAKS MONITOR V10"
+  content="⚛️ PAKS MONITOR"
 >
 
 <meta
   property="og:image"
   content="${PUBLIC_URL}/facebook-image"
 >
+
 
 <style>
 
@@ -68,25 +1326,51 @@ const html = `<!doctype html>
   box-sizing:border-box;
 }
 
-html{
-  margin:0;
-  padding:0;
-  width:100%;
-  min-width:1536px;
-  min-height:100%;
-  background:#000;
-  touch-action:pan-x pan-y pinch-zoom;
-}
-
+html,
 body{
   margin:0;
   padding:0;
   width:100%;
-  min-width:1536px;
-  min-height:100vh;
+  min-height:100%;
+  background:#000;
+  color:var(--white);
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Arial,
+    sans-serif;
+  -webkit-text-size-adjust:100%;
+  touch-action:
+    pan-x
+    pan-y
+    pinch-zoom;
+}
 
+body{
   overflow:auto;
+}
 
+
+/* ============================================================
+   VPAKS01:
+   FIX 1536 × 864 FEKVŐ MŰSZERFAL
+============================================================ */
+
+#vpaksViewport{
+  position:relative;
+  width:100%;
+  background:#000;
+  overflow:visible;
+}
+
+#vpaksBoard{
+  position:absolute;
+  left:0;
+  top:0;
+  width:1536px;
+  height:864px;
+  transform-origin:top left;
   background:
     radial-gradient(
       circle at 50% -10%,
@@ -94,32 +1378,7 @@ body{
       #040b14 38%,
       #02060b 100%
     );
-
-  color:var(--white);
-
-  font-family:
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    Arial,
-    sans-serif;
-
-  -webkit-text-size-adjust:100%;
-  touch-action:pan-x pan-y pinch-zoom;
-}
-
-
-/* ============================================================
-   FIX FEKVŐ VÁSZON
-============================================================ */
-
-.app{
-  width:1500px;
-  min-width:1500px;
-  max-width:1500px;
-
-  margin:18px auto;
-  padding:0;
+  padding:12px;
 }
 
 
@@ -128,16 +1387,15 @@ body{
 ============================================================ */
 
 .header{
-  height:58px;
-
+  height:52px;
   display:grid;
-  grid-template-columns:340px 1fr 430px;
-
+  grid-template-columns:
+    390px
+    1fr
+    430px;
+  gap:10px;
   align-items:center;
-
-  gap:12px;
-
-  margin-bottom:10px;
+  margin-bottom:8px;
 }
 
 .brand{
@@ -146,219 +1404,188 @@ body{
   gap:10px;
 }
 
-.logo{
-  width:46px;
-  height:46px;
-
-  display:grid;
-  place-items:center;
-
-  border-radius:12px;
-
-  font-size:27px;
-
-  background:
-    linear-gradient(
-      145deg,
-      #bf54ff,
-      #57127c
-    );
-}
-
-.title{
-  font-size:25px;
-  line-height:1;
+.brandName{
+  font-size:26px;
+  line-height:.9;
   font-weight:950;
   letter-spacing:-.7px;
 }
 
 .versionBadge{
   display:inline-block;
-
   margin-left:8px;
-
-  padding:4px 8px;
-
-  border-radius:6px;
-
-  background:#541269;
-
-  color:#f0a6ff;
-
-  font-size:10px;
+  padding:4px 7px;
+  border-radius:5px;
+  background:#58136f;
+  color:#f3a8ff;
+  font-size:9px;
+  vertical-align:middle;
 }
 
 .live{
-  display:flex;
+  display:inline-flex;
   align-items:center;
-  justify-content:center;
-
-  gap:7px;
-
+  gap:6px;
+  margin-left:10px;
   color:var(--green);
-
-  font-size:13px;
+  font-size:11px;
   font-weight:900;
 }
 
 .liveDot{
-  width:9px;
-  height:9px;
-
+  width:8px;
+  height:8px;
   border-radius:50%;
-
   background:var(--green);
+  box-shadow:0 0 8px var(--green);
+}
 
-  box-shadow:
-    0 0 9px var(--green);
+.clockWrap{
+  text-align:center;
+}
+
+.clock{
+  display:inline-block;
+  font-size:27px;
+  font-weight:950;
+}
+
+.refresh{
+  margin-left:10px;
+  color:#77889a;
+  font-size:9px;
 }
 
 .headerRight{
   display:grid;
+  grid-template-columns:
+    95px
+    1fr;
+  gap:7px;
+  align-items:center;
+}
 
-  grid-template-columns:1fr 70px;
+.signature{
+  height:35px;
+  display:grid;
+  place-items:center;
+  border:1px solid #4d1d64;
+  border-radius:6px;
+  background:#100817;
+  color:#d24fff;
+  font-size:12px;
+  font-weight:950;
+  letter-spacing:1px;
+}
 
-  gap:5px;
-
-  height:38px;
+.share{
+  height:35px;
+  display:grid;
+  grid-template-columns:
+    1fr
+    63px;
+  gap:4px;
+  padding:4px;
+  border:1px solid #17334a;
+  border-radius:6px;
+  background:#07111b;
 }
 
 .shareLink{
   min-width:0;
-
   display:flex;
   align-items:center;
-
-  padding:0 8px;
-
+  padding:0 6px;
   border:1px solid #9636c5;
-  border-radius:7px;
-
+  border-radius:5px;
   background:#16091d;
-
   color:#d24fff;
-
-  text-decoration:none;
-
   white-space:nowrap;
   overflow:hidden;
   text-overflow:ellipsis;
-
-  font-size:8px;
+  text-decoration:none;
+  font-size:7px;
 }
 
 .copy{
   border:0;
-
-  border-radius:7px;
-
+  border-radius:5px;
   background:#142130;
-
-  color:white;
-
-  font-size:8px;
+  color:#fff;
+  font-size:7px;
   font-weight:900;
 }
 
 
 /* ============================================================
-   FELSŐ 3 PANEL
+   FELSŐ SOR
 ============================================================ */
 
 .topGrid{
   display:grid;
-
   grid-template-columns:
     390px
-    545px
-    545px;
-
-  gap:10px;
-
-  height:250px;
-
-  margin-bottom:10px;
+    535px
+    565px;
+  gap:8px;
+  height:236px;
+  margin-bottom:8px;
 }
 
 .panel{
   border:1px solid var(--line);
-
-  border-radius:10px;
-
+  border-radius:7px;
   background:
     linear-gradient(
       145deg,
       #08141f,
       #06101a
     );
-
   overflow:hidden;
 }
 
 .pad{
-  padding:12px;
+  padding:10px;
 }
 
 .sectionTitle{
-  color:#a9b4c1;
-
-  font-size:11px;
-
+  color:#b3bfca;
+  font-size:10px;
   font-weight:900;
-
-  letter-spacing:.4px;
 }
 
 .bigRow{
   display:flex;
-
   align-items:flex-end;
-
   justify-content:space-between;
-
   gap:8px;
-
-  margin:
-    6px 0 8px;
+  margin:5px 0 6px;
 }
 
 .bigPower{
   color:var(--green);
-
-  font-size:46px;
-
-  line-height:.92;
-
+  font-size:43px;
+  line-height:.93;
   font-weight:950;
-
-  letter-spacing:-1.8px;
+  letter-spacing:-1.6px;
 }
 
 .bigWater{
   color:var(--blue);
-
-  font-size:46px;
-
-  line-height:.92;
-
+  font-size:43px;
+  line-height:.93;
   font-weight:950;
-
-  letter-spacing:-1.8px;
 }
 
 .smallCaption{
-  padding-bottom:4px;
-
+  padding-bottom:3px;
   color:#718194;
-
-  font-size:8px;
+  font-size:7px;
 }
 
 .status{
-  padding-bottom:4px;
-
-  font-size:9px;
-
+  padding-bottom:3px;
+  font-size:8px;
   font-weight:900;
 }
 
@@ -376,111 +1603,84 @@ body{
 
 
 /* ============================================================
-   GRAFIKONOK
+   TELJESÍTMÉNY GRAFIKON
 ============================================================ */
 
 .chartPanel{
-  padding:7px;
-
+  padding:6px;
   border:1px solid #132c41;
-
-  border-radius:8px;
-
+  border-radius:7px;
   background:#050e18;
-
-  margin-bottom:7px;
 }
 
 .chartHead{
   display:flex;
-
-  justify-content:space-between;
-
   align-items:center;
-
-  gap:5px;
-
-  margin-bottom:3px;
+  justify-content:space-between;
+  gap:4px;
+  margin-bottom:2px;
 }
 
 .chartName{
   color:#8495a9;
-
-  font-size:7px;
-
+  font-size:6px;
   font-weight:850;
 }
 
 .buttons{
   display:flex;
-
-  gap:3px;
+  gap:2px;
 }
 
 .period{
   border:0;
-
   border-radius:999px;
-
-  padding:4px 7px;
-
+  padding:3px 5px;
   background:#111e2b;
-
   color:#8495a9;
-
-  font-size:7px;
-
+  font-size:6px;
   font-weight:850;
 }
 
 .period.active{
   background:#234763;
-
   color:#fff;
 }
 
 .chartWrap{
   position:relative;
-
-  width:100%;
-
-  height:92px;
+  height:104px;
 }
 
 canvas{
   display:block;
-
   width:100%;
   height:100%;
 }
 
 
 /* ============================================================
-   BLOKKOK
+   4 BLOKK
 ============================================================ */
+
+.blockPanel{
+  display:grid;
+  grid-template-rows:
+    1fr
+    25px;
+  height:100%;
+}
 
 .blocks{
   display:grid;
-
   grid-template-columns:
     repeat(4,1fr);
-
-  height:220px;
 }
 
 .block{
   position:relative;
-
-  padding:18px 14px;
-
-  border-right:1px solid #183047;
-
-  background:
-    linear-gradient(
-      180deg,
-      #081522,
-      #06101a
-    );
+  padding:16px 13px;
+  border-right:1px solid #173047;
 }
 
 .block:last-child{
@@ -488,83 +1688,90 @@ canvas{
 }
 
 .blockName{
-  color:#9ba9b8;
-
-  font-size:10px;
-
-  font-weight:800;
+  color:#9aa8b7;
+  font-size:9px;
+  font-weight:850;
 }
 
 .blockValue{
-  margin-top:37px;
-
-  font-size:24px;
-
-  line-height:1;
-
+  margin-top:34px;
+  color:#f7f8fa;
+  font-size:23px;
   font-weight:950;
 }
 
+.blockValue.on{
+  color:var(--green);
+}
+
+.blockPct{
+  position:absolute;
+  left:13px;
+  bottom:38px;
+  color:#9aa8b7;
+  font-size:10px;
+}
+
+.blockPct.on{
+  color:var(--green);
+}
+
+.blockBar{
+  position:absolute;
+  left:13px;
+  right:13px;
+  bottom:24px;
+  height:2px;
+  background:#354654;
+}
+
+.blockBarFill{
+  height:100%;
+  background:var(--green);
+}
+
 .source{
-  height:28px;
-
+  height:25px;
   display:flex;
-
   align-items:center;
-
-  padding:0 11px;
-
+  padding:0 10px;
   border-top:1px solid #173047;
-
-  color:#6f8092;
-
-  font-size:8px;
+  color:#728397;
+  font-size:7px;
 }
 
 
 /* ============================================================
-   HŐ / FŐÁGI KÜSZÖB
+   JOBB FELSŐ PANEL
 ============================================================ */
 
 .metrics{
   display:grid;
-
   grid-template-columns:
-    1fr 1fr 1.2fr;
-
-  gap:6px;
+    1fr
+    1fr
+    1.15fr;
+  gap:5px;
 }
 
 .metric{
-  min-width:0;
-
-  padding:10px;
-
-  border-radius:7px;
-
+  padding:8px;
   border:1px solid #10283b;
-
+  border-radius:6px;
   background:#0b1724;
 }
 
 .metricName{
-  min-height:24px;
-
+  min-height:18px;
   color:#8292a4;
-
-  font-size:8px;
-
-  line-height:1.1;
+  font-size:7px;
 }
 
 .metricValue{
-  margin-top:4px;
-
+  margin-top:2px;
   white-space:nowrap;
-
-  font-size:20px;
-
-  font-weight:900;
+  font-size:19px;
+  font-weight:950;
 }
 
 .orange{
@@ -572,34 +1779,22 @@ canvas{
 }
 
 .infoRule{
-  margin-top:7px;
-
-  padding:8px;
-
+  margin-top:6px;
+  padding:6px;
   border:1px solid #684a18;
-
-  border-radius:7px;
-
+  border-radius:6px;
   background:#171208;
-
   color:#ffb340;
-
   text-align:center;
-
-  font-size:9px;
-
+  font-size:7px;
   font-weight:900;
 }
 
 .gauge{
   position:relative;
-
-  height:10px;
-
-  margin-top:11px;
-
+  height:9px;
+  margin-top:9px;
   border-radius:999px;
-
   background:
     linear-gradient(
       90deg,
@@ -614,34 +1809,24 @@ canvas{
 
 .marker{
   position:absolute;
-
   left:${markerPct}%;
-
-  top:-6px;
-
-  width:4px;
-  height:22px;
-
-  background:white;
-
-  border-radius:3px;
-
-  transform:
-    translateX(-50%);
-
-  box-shadow:
-    0 0 7px white;
+  top:-5px;
+  width:3px;
+  height:19px;
+  border-radius:2px;
+  background:#fff;
+  transform:translateX(-50%);
+  box-shadow:0 0 6px #fff;
 }
 
 .scale{
   display:grid;
-
   grid-template-columns:
-    1fr 1fr 1fr;
-
-  margin-top:4px;
-
-  font-size:8px;
+    1fr
+    1fr
+    1fr;
+  margin-top:3px;
+  font-size:7px;
 }
 
 .scale span:nth-child(1){
@@ -650,512 +1835,483 @@ canvas{
 
 .scale span:nth-child(2){
   text-align:center;
-
   color:var(--orange);
 }
 
 .scale span:nth-child(3){
   text-align:right;
-
   color:var(--red);
 }
 
 .distanceGrid{
   display:grid;
-
   grid-template-columns:
-    1fr 1fr;
-
-  gap:6px;
-
-  margin-top:7px;
+    1fr
+    1fr;
+  gap:5px;
+  margin-top:6px;
 }
 
 .distance{
-  padding:7px 10px;
-
+  padding:5px 8px;
   border:1px solid #10283b;
-
-  border-radius:7px;
-
+  border-radius:6px;
   background:#0b1724;
 }
 
 .distanceNumber{
-  font-size:19px;
-
+  font-size:17px;
   font-weight:950;
 }
 
 .distanceText{
   color:#718194;
-
-  font-size:8px;
+  font-size:7px;
 }
 
 
 /* ============================================================
-   NAGY FOLYAMATÁBRA
+   NAGY VÍZRENDSZER
 ============================================================ */
 
-.systemPanel{
-  height:400px;
-
-  margin-bottom:10px;
-
+.hydroPanel{
   position:relative;
-
+  height:425px;
+  margin-bottom:8px;
   border:1px solid var(--line);
-
-  border-radius:10px;
-
-  overflow:hidden;
-
-  background:#07131f;
-}
-
-.systemTitle{
-  height:35px;
-
-  display:flex;
-
-  align-items:center;
-
-  justify-content:space-between;
-
-  padding:0 13px;
-
-  border-bottom:1px solid #17364f;
-
-  background:#06111c;
-}
-
-.systemTitleMain{
-  font-size:12px;
-
-  font-weight:950;
-
-  color:#d3dce5;
-}
-
-.systemTitleLive{
-  color:#6f8397;
-
-  font-size:9px;
-
-  font-weight:800;
-}
-
-
-/* ============================================================
-   ÉLŐ ADATSOR A RAJZ FÖLÖTT
-============================================================ */
-
-.dataRail{
-  height:74px;
-
-  display:grid;
-
-  grid-template-columns:
-    repeat(5,1fr);
-
-  gap:6px;
-
-  padding:7px;
-
-  background:#050e17;
-
-  border-bottom:1px solid #17354d;
-}
-
-.dataBox{
-  min-width:0;
-
-  padding:6px;
-
-  border:1px solid #18364e;
-
   border-radius:7px;
-
-  background:#07131f;
-
-  text-align:center;
-}
-
-.dataBox.upliftBox{
-  border-color:#37793f;
-
-  background:#07160a;
-}
-
-.dataLabel{
-  color:#8596a8;
-
-  font-size:7px;
-
-  line-height:1.05;
-
-  font-weight:850;
-}
-
-.dataValue{
-  margin-top:4px;
-
-  white-space:nowrap;
-
-  font-size:18px;
-
-  line-height:1;
-
-  font-weight:950;
-}
-
-.dataSub{
-  margin-top:3px;
-
-  color:#7a8b9d;
-
-  white-space:nowrap;
-
-  font-size:7px;
-}
-
-.dataTime{
-  margin-top:3px;
-
-  color:#5d7184;
-
-  font-size:6px;
-}
-
-.blue{
-  color:var(--blue);
-}
-
-.green{
-  color:var(--green);
-}
-
-.dir.up{
-  color:var(--green);
-}
-
-.dir.down{
-  color:var(--orange);
-}
-
-.dir.flat{
-  color:#a0acb8;
-}
-
-
-/* ============================================================
-   SEMATIKUS RAJZ
-============================================================ */
-
-.systemScene{
-  position:relative;
-
-  width:100%;
-
-  height:290px;
-
   overflow:hidden;
+  background:#07121c;
+}
 
+.scene{
+  position:relative;
+  width:100%;
+  height:325px;
+  overflow:hidden;
   background:
     linear-gradient(
       180deg,
-      #11283d 0%,
-      #0f2639 54%,
-      #3e332a 54%,
-      #2e261f 100%
+      #143551 0%,
+      #102e47 48%,
+      #0b1e2d 100%
     );
 }
 
 
-/* FŐÁG */
+/* CÍMEK */
 
-.riverLeft{
+.sceneTitle{
   position:absolute;
+  z-index:30;
+  top:10px;
+  color:#f2f4f7;
+  text-align:center;
+  font-size:11px;
+  font-weight:900;
+}
 
+.tRiver{
+  left:15px;
+  width:230px;
+}
+
+.tThreshold{
+  left:250px;
+  width:430px;
+}
+
+.tHvcs{
+  left:700px;
+  width:235px;
+}
+
+.tPumps{
+  left:950px;
+  width:220px;
+}
+
+.tPlant{
+  right:10px;
+  width:270px;
+}
+
+
+/* VÍZ */
+
+.riverMain{
+  position:absolute;
+  z-index:2;
   left:0;
-  top:152px;
-
-  width:29%;
-
-  height:80px;
-
+  top:173px;
+  width:300px;
+  height:105px;
   background:
     linear-gradient(
-      180deg,
-      #268fd0,
-      #126497
+      #2694d6,
+      #116398
     );
-
-  border-top:3px solid #67c6ff;
+  border-top:3px solid #69cbff;
 }
 
-
-/* EMELKEDŐ FELVÍZ */
-
-.waterRise{
+.riseWater{
   position:absolute;
-
-  left:28.5%;
-  top:132px;
-
-  width:18%;
-
-  height:100px;
-
+  z-index:3;
+  left:295px;
+  top:155px;
+  width:150px;
+  height:123px;
   background:
     linear-gradient(
-      180deg,
-      #2c96d6,
-      #166aa0
+      #2c98d9,
+      #176ca2
     );
-
   clip-path:
     polygon(
-      0 20%,
+      0 15%,
       100% 0,
       100% 100%,
       0 100%
     );
 }
 
-.riseSurface{
+.riseLine{
   position:absolute;
-
   z-index:6;
-
-  left:28.5%;
-  top:151px;
-
-  width:18.5%;
-
-  height:4px;
-
-  background:#66c7ff;
-
-  transform:
-    rotate(-6deg);
-
-  transform-origin:
-    left center;
-
-  box-shadow:
-    0 0 8px
-    rgba(
-      73,
-      169,
-      255,
-      .75
-    );
+  left:294px;
+  top:173px;
+  width:155px;
+  height:3px;
+  background:#6bceff;
+  transform:rotate(-6deg);
+  transform-origin:left center;
 }
 
-
-/* FELVÍZI SZAKASZ */
-
-.riverRight{
+.upWater{
   position:absolute;
-
-  left:46%;
-  right:0;
-
-  top:132px;
-
-  height:100px;
-
+  z-index:2;
+  left:440px;
+  top:155px;
+  width:270px;
+  height:123px;
   background:
     linear-gradient(
-      180deg,
-      #2c96d6,
-      #166aa0
+      #2b96d6,
+      #17699e
     );
-
-  border-top:3px solid #66c7ff;
+  border-top:3px solid #68caff;
 }
 
 
-/* MEDER */
+/* KÜSZÖB UTÁNI ALACSONYABB SZINT */
 
-.riverBed{
+.downWater{
   position:absolute;
+  z-index:2;
+  left:700px;
+  top:181px;
+  width:185px;
+  height:97px;
+  background:
+    linear-gradient(
+      #278fce,
+      #17689b
+    );
+  border-top:3px solid #68caff;
+}
 
+
+/* HVCS SZINT */
+
+.hvcsRise{
+  position:absolute;
+  z-index:2;
+  left:880px;
+  top:163px;
+  width:100px;
+  height:115px;
+  background:
+    linear-gradient(
+      #2b95d4,
+      #17699d
+    );
+  clip-path:
+    polygon(
+      0 16%,
+      100% 0,
+      100% 100%,
+      0 100%
+    );
+}
+
+.hvcsWater{
+  position:absolute;
+  z-index:2;
+  left:975px;
+  right:0;
+  top:163px;
+  height:115px;
+  background:
+    linear-gradient(
+      #2b95d4,
+      #17699d
+    );
+  border-top:3px solid #68caff;
+}
+
+.bed{
+  position:absolute;
+  z-index:1;
   left:0;
   right:0;
-
-  top:232px;
+  top:278px;
   bottom:0;
-
   background:
     linear-gradient(
-      #48382c,
-      #2d241e
+      #493a2d,
+      #2b231d
     );
-
-  border-top:2px solid #5a493b;
+  border-top:2px solid #5e4a3a;
 }
 
 
-/* DUZZASZTÁSI BADGE */
+/* MÉRÉSI KÁRTYÁK */
 
-.upliftBadge{
+.reading{
   position:absolute;
-
-  z-index:20;
-
-  left:33%;
-  top:28px;
-
-  width:180px;
-
-  padding:10px;
-
-  border:1px solid #347941;
-
-  border-radius:8px;
-
-  background:
-    rgba(
-      4,
-      23,
-      9,
-      .94
-    );
-
+  z-index:30;
+  width:125px;
+  padding:8px;
+  border:1px solid #1a3d59;
+  border-radius:6px;
+  background:rgba(3,14,24,.93);
   text-align:center;
 }
 
-.upliftBadgeLabel{
-  color:#93a39a;
-
-  font-size:8px;
-
+.readLab{
+  color:#91a1b2;
+  font-size:7px;
   font-weight:850;
 }
 
-.upliftBadgeValue{
-  margin-top:3px;
-
-  color:var(--green);
-
-  font-size:27px;
-
+.readVal{
+  margin-top:4px;
+  font-size:19px;
   line-height:1;
-
   font-weight:950;
+}
+
+.readSub{
+  margin-top:4px;
+  color:#d0d7de;
+  font-size:8px;
+}
+
+.readTime{
+  margin-top:4px;
+  color:#6f8192;
+  font-size:7px;
+}
+
+.rRiver{
+  left:42px;
+  top:45px;
+}
+
+.rUp{
+  left:295px;
+  top:44px;
+}
+
+.rDown{
+  left:660px;
+  top:44px;
+}
+
+.rHvcs{
+  left:830px;
+  top:44px;
+}
+
+
+/* DUZZASZTÁS PANEL */
+
+.upliftCard{
+  position:absolute;
+  z-index:35;
+  left:405px;
+  top:40px;
+  width:210px;
+  height:135px;
+  padding:9px;
+  border:1px solid #347941;
+  border-radius:6px;
+  background:rgba(5,25,10,.94);
+}
+
+.upliftLabel{
+  color:#86b68c;
+  text-align:center;
+  font-size:8px;
+  font-weight:900;
+}
+
+.upliftValue{
+  margin-top:5px;
+  color:var(--green);
+  text-align:center;
+  font-size:25px;
+  font-weight:950;
+}
+
+.upliftSub{
+  margin-top:2px;
+  color:#8ab990;
+  text-align:center;
+  font-size:8px;
+}
+
+.miniGraph{
+  position:absolute;
+  left:10px;
+  right:10px;
+  bottom:12px;
+  height:55px;
+}
+
+.miniGrid{
+  position:absolute;
+  inset:0;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent 0 13px,
+      rgba(75,150,90,.18) 13px 14px
+    );
+}
+
+.miniLine{
+  position:absolute;
+  left:10px;
+  right:10px;
+  top:32px;
+  height:2px;
+  background:var(--green);
+  transform:rotate(-6deg);
+  transform-origin:left center;
+}
+
+.miniDot{
+  position:absolute;
+  right:7px;
+  top:11px;
+  width:7px;
+  height:7px;
+  border-radius:50%;
+  background:var(--green);
+  box-shadow:0 0 7px var(--green);
 }
 
 
 /* FENÉKKÜSZÖB */
 
-.threshold{
+.wallL{
   position:absolute;
-
-  z-index:8;
-
-  left:42%;
-  top:173px;
-
-  width:15%;
-
-  height:70px;
-
-  border-radius:
-    50% 50% 7px 7px;
-
+  z-index:9;
+  left:420px;
+  top:148px;
+  width:18px;
+  height:137px;
   background:
-    radial-gradient(
-      circle at 10% 70%,
-      #777b7d 0 13px,
-      transparent 14px
-    ),
-    radial-gradient(
-      circle at 27% 35%,
-      #96999b 0 14px,
-      transparent 15px
-    ),
-    radial-gradient(
-      circle at 44% 70%,
-      #5d6163 0 14px,
-      transparent 15px
-    ),
-    radial-gradient(
-      circle at 62% 35%,
-      #888c8f 0 14px,
-      transparent 15px
-    ),
-    radial-gradient(
-      circle at 80% 70%,
-      #6a6e70 0 13px,
-      transparent 14px
-    ),
-    #45494b;
-}
-
-.thresholdText{
-  position:absolute;
-
-  z-index:10;
-
-  left:40%;
-  top:248px;
-
-  width:19%;
-
-  text-align:center;
-
-  color:#aeb8c0;
-
-  font-size:9px;
-
-  font-weight:900;
-}
-
-
-/* RÁCS */
-
-.rack{
-  position:absolute;
-
-  z-index:12;
-
-  left:64%;
-
-  top:152px;
-
-  width:28px;
-  height:95px;
-
-  border:3px solid #95a1ac;
-
-  background:
-    repeating-linear-gradient(
+    linear-gradient(
       90deg,
-      #253947 0 4px,
-      #8e9ba6 4px 7px
+      #9ca7ad,
+      #555f66
     );
 }
 
-.rackText{
+.wallR{
   position:absolute;
+  z-index:9;
+  left:670px;
+  top:148px;
+  width:18px;
+  height:137px;
+  background:
+    linear-gradient(
+      90deg,
+      #9ca7ad,
+      #555f66
+    );
+}
 
-  z-index:12;
+.thresholdRock{
+  position:absolute;
+  z-index:8;
+  left:445px;
+  top:224px;
+  width:220px;
+  height:65px;
+  border-radius:
+    55% 55% 5px 5px;
+  background:
+    radial-gradient(
+      circle at 15% 60%,
+      #8c9093 0 16px,
+      transparent 17px
+    ),
+    radial-gradient(
+      circle at 34% 30%,
+      #717578 0 18px,
+      transparent 19px
+    ),
+    radial-gradient(
+      circle at 51% 64%,
+      #969a9c 0 17px,
+      transparent 18px
+    ),
+    radial-gradient(
+      circle at 70% 33%,
+      #676b6e 0 20px,
+      transparent 21px
+    ),
+    radial-gradient(
+      circle at 87% 67%,
+      #8b8f91 0 18px,
+      transparent 19px
+    ),
+    #45494c;
+}
 
-  left:59%;
-  top:250px;
 
-  width:22%;
+/* SZŰRŐRÁCS */
 
+.rack{
+  position:absolute;
+  z-index:10;
+  left:790px;
+  top:183px;
+  width:36px;
+  height:95px;
+  border:3px solid #87949e;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      #253845 0 5px,
+      #9aa7b0 5px 8px
+    );
+}
+
+.rackLabel{
+  position:absolute;
+  z-index:15;
+  left:760px;
+  top:152px;
+  width:100px;
+  color:#cad3da;
   text-align:center;
-
-  color:#85cfff;
-
   font-size:8px;
-
-  font-weight:900;
+  font-weight:850;
 }
 
 
@@ -1163,59 +2319,46 @@ canvas{
 
 .pump{
   position:absolute;
-
-  z-index:13;
-
-  top:133px;
-
-  width:25px;
-  height:115px;
-
-  border-left:9px solid #929da6;
-
-  border-radius:5px;
+  z-index:12;
+  top:158px;
+  width:35px;
+  height:120px;
+  border-left:10px solid #8e99a2;
 }
 
 .pump:before{
   content:"";
-
   position:absolute;
-
-  left:-15px;
+  left:-17px;
   top:-8px;
-
-  width:27px;
-  height:20px;
-
+  width:32px;
+  height:22px;
   border-radius:6px;
-
-  background:#919ba4;
+  background:#949ea6;
 }
 
 .pump:after{
   content:"";
-
   position:absolute;
-
-  left:-16px;
+  left:-18px;
   bottom:-8px;
-
-  width:29px;
-  height:29px;
-
-  border:3px solid #323b42;
-
+  width:33px;
+  height:33px;
+  border:3px solid #303940;
   border-radius:50%;
-
-  background:#68747d;
+  background:#69747d;
 }
 
-.pump1{
-  left:73%;
+.p1{
+  left:940px;
 }
 
-.pump2{
-  left:79%;
+.p2{
+  left:1010px;
+}
+
+.p3{
+  left:1080px;
 }
 
 
@@ -1223,273 +2366,257 @@ canvas{
 
 .plant{
   position:absolute;
-
   z-index:12;
-
-  right:3%;
-
-  top:110px;
-
-  width:145px;
-  height:140px;
-
-  border:1px solid #88949d;
-
-  border-radius:
-    10px 10px 4px 4px;
-
+  right:35px;
+  top:113px;
+  width:190px;
+  height:165px;
+  border:1px solid #87929a;
+  border-radius:7px 7px 3px 3px;
   background:
     linear-gradient(
       145deg,
-      #68747e,
-      #353d43
+      #69737c,
+      #343c42
     );
 }
 
 .plant:before{
   content:"";
-
   position:absolute;
+  left:42px;
+  top:-58px;
+  width:105px;
+  height:62px;
+  border:1px solid #929ba2;
+  border-radius:50% 50% 0 0;
+  background:#59636b;
+}
 
-  left:29px;
-  top:-47px;
-
-  width:85px;
-  height:50px;
-
-  border:1px solid #8e999f;
-
-  border-radius:
-    50% 50% 0 0;
-
-  background:#5d6870;
+.chimney{
+  position:absolute;
+  right:14px;
+  top:-65px;
+  width:20px;
+  height:70px;
+  background:
+    repeating-linear-gradient(
+      180deg,
+      #eee 0 10px,
+      #b43030 10px 20px
+    );
 }
 
 .plantName{
-  position:absolute;
-
-  left:5px;
-  right:5px;
-
-  top:42px;
-
+  margin-top:45px;
   text-align:center;
-
-  color:#f2f4f7;
-
   font-size:13px;
-
-  line-height:1.05;
-
-  font-weight:900;
+  font-weight:950;
 }
 
 .plantMw{
-  position:absolute;
-
-  left:4px;
-  right:4px;
-
-  bottom:25px;
-
-  text-align:center;
-
+  margin-top:18px;
   color:var(--green);
-
-  font-size:24px;
-
+  text-align:center;
+  font-size:28px;
   font-weight:950;
 }
 
 
-/* ÁRAMLÁSI NYILAK */
+/* SZIVATTYÚ SZINT PANEL */
+
+.hvcsPanel{
+  position:absolute;
+  z-index:35;
+  right:25px;
+  bottom:12px;
+  width:240px;
+  padding:11px;
+  border:1px solid #26643a;
+  border-radius:6px;
+  background:rgba(4,19,11,.94);
+}
+
+.hvcsPanelTitle{
+  color:#b9c4cc;
+  font-size:9px;
+  font-weight:900;
+}
+
+.hvcsPanelValue{
+  margin-top:5px;
+  color:var(--blue);
+  font-size:23px;
+  font-weight:950;
+}
+
+.hvcsPanelSub{
+  margin-top:6px;
+  color:#8fa0ad;
+  font-size:8px;
+}
+
+
+/* FLOW */
 
 .flowArrow{
   position:absolute;
-
-  z-index:14;
-
-  color:#6bc4fb;
-
-  font-size:29px;
-
+  z-index:15;
+  color:#5dbbfa;
+  font-size:27px;
   font-weight:950;
-
-  opacity:.9;
 }
 
 .fa1{
-  left:18%;
-  top:180px;
+  left:190px;
+  top:200px;
 }
 
 .fa2{
-  left:59%;
-  top:175px;
+  left:745px;
+  top:207px;
 }
 
 .fa3{
-  left:69%;
-  top:181px;
+  left:875px;
+  top:205px;
+}
+
+.fa4{
+  left:920px;
+  top:205px;
 }
 
 
-/* MAGYARÁZAT */
+/* LEÁLLÁSI SZINT */
 
-.sceneNote{
+.shutdownLine{
   position:absolute;
-
-  left:10px;
-  bottom:8px;
-
-  z-index:25;
-
-  padding:4px 7px;
-
-  border-radius:5px;
-
-  background:
-    rgba(
-      2,
-      8,
-      17,
-      .78
-    );
-
-  color:#8999a9;
-
-  font-size:7px;
+  z-index:18;
+  left:220px;
+  right:260px;
+  top:260px;
+  border-top:
+    2px dashed
+    var(--red);
 }
 
-
-/* ============================================================
-   ALSÓ 5 ADATKÁRTYA
-============================================================ */
-
-.summaryRail{
-  display:grid;
-
-  grid-template-columns:
-    repeat(5,1fr);
-
-  gap:7px;
-
-  margin-bottom:9px;
-}
-
-.summary{
-  min-width:0;
-
-  height:92px;
-
-  padding:11px 7px;
-
-  border:1px solid #18364e;
-
-  border-radius:8px;
-
-  background:#06121d;
-
-  text-align:center;
-}
-
-.summary.highlight{
-  border-color:#3c7438;
-
-  background:#08160b;
-}
-
-.summaryLabel{
-  min-height:17px;
-
-  display:flex;
-
-  justify-content:center;
-
-  align-items:center;
-
-  color:#8494a5;
-
-  font-size:9px;
-
-  line-height:1.05;
-
-  font-weight:800;
-}
-
-.summaryValue{
-  margin-top:6px;
-
-  white-space:nowrap;
-
-  font-size:22px;
-
+.shutdownText{
+  position:absolute;
+  z-index:20;
+  left:250px;
+  top:264px;
+  color:var(--red);
+  font-size:8px;
   font-weight:950;
 }
 
-.summarySub{
-  margin-top:5px;
 
-  color:#647486;
+/* ============================================================
+   ALSÓ ADATKÁRTYÁK
+============================================================ */
 
+.bottomRail{
+  display:grid;
+  grid-template-columns:
+    1.1fr
+    1fr
+    1fr
+    1.15fr
+    1fr
+    1.2fr
+    1.15fr;
+  height:90px;
+  border-top:1px solid #17334a;
+  background:#05101a;
+}
+
+.bottomCard{
+  position:relative;
+  padding:9px;
+  border-right:1px solid #17334a;
+  text-align:center;
+}
+
+.bottomCard:last-child{
+  border-right:0;
+}
+
+.bottomCard.highlight{
+  border:1px solid #6b621d;
+  background:#08150b;
+}
+
+.bottomLabel{
+  color:#8c9bab;
   font-size:8px;
+  font-weight:850;
+}
+
+.bottomValue{
+  margin-top:8px;
+  font-size:21px;
+  font-weight:950;
+}
+
+.bottomSub{
+  margin-top:5px;
+  color:#748698;
+  font-size:7px;
+}
+
+.bottomDanger{
+  margin-top:5px;
+  color:var(--red);
+  font-size:7px;
+  font-weight:900;
+}
+
+.bottomGraph{
+  position:absolute;
+  left:15px;
+  right:15px;
+  bottom:18px;
+  height:30px;
+}
+
+.bottomGraphLine{
+  position:absolute;
+  left:0;
+  right:0;
+  top:15px;
+  height:2px;
+  background:var(--green);
+  transform:rotate(4deg);
 }
 
 
 /* ============================================================
-   ALSÓ SOR
+   LÁBLÉC
 ============================================================ */
 
-.bottomBar{
-  height:39px;
-
+.footer{
+  height:34px;
   display:grid;
-
   grid-template-columns:
     1fr
-    400px
-    180px;
-
-  gap:8px;
-
+    1fr
+    1fr;
   align-items:center;
-
-  margin-bottom:8px;
+  padding:0 10px;
+  border:1px solid #173650;
+  border-radius:5px;
+  background:#05101a;
+  color:#6d7f92;
+  font-size:7px;
 }
 
-.bottomInfo{
-  color:#65798c;
-
-  font-size:8px;
+.footer div:nth-child(2){
+  text-align:center;
 }
 
-.bottomShare{
-  height:36px;
-
-  display:grid;
-
-  grid-template-columns:
-    1fr 70px;
-
-  gap:5px;
-
-  padding:4px;
-
-  border:1px solid #17334a;
-
-  border-radius:8px;
-
-  background:#07111b;
-}
-
-.version{
+.footer div:nth-child(3){
   text-align:right;
-
-  color:#405266;
-
-  font-size:8px;
-
-  letter-spacing:1px;
 }
 
 
@@ -1499,54 +2626,30 @@ canvas{
 
 .toast{
   position:fixed;
-
   left:50%;
   bottom:20px;
-
   z-index:9999;
-
   transform:
     translateX(-50%)
     translateY(10px);
-
   opacity:0;
-
   padding:8px 14px;
-
   border:1px solid #337b40;
-
   border-radius:999px;
-
   background:#102819;
-
   color:#79e870;
-
   font-size:11px;
-
   font-weight:850;
-
   transition:.2s;
-
   pointer-events:none;
 }
 
 .toast.show{
   opacity:1;
-
   transform:
     translateX(-50%)
     translateY(0);
 }
-
-
-/*
-  NINCS MOBIL ÁTTÖRDELÉS.
-
-  Ez szándékos.
-
-  A teljes 1500 px széles műszerfal
-  mindig ugyanabban az elrendezésben marad.
-*/
 
 </style>
 
@@ -1556,65 +2659,83 @@ canvas{
 <body>
 
 
-<div class="app">
+<div id="vpaksViewport">
+
+
+<div id="vpaksBoard">
 
 
 <!-- =========================================================
      FEJLÉC
 ========================================================== -->
 
-
 <div class="header">
 
 
-  <div class="brand">
+<div class="brand">
 
-    <div class="logo">
-      ⚛️
-    </div>
+<div class="brandName">
+  PAKS MONITOR
 
-    <div class="title">
+  <span class="versionBadge">
+    VP01
+  </span>
 
-      PAKS MONITOR
-
-      <span class="versionBadge">
-        V10
-      </span>
-
-    </div>
-
-  </div>
-
-
-  <div class="live">
-
+  <span class="live">
     <span class="liveDot"></span>
-
     ÉLŐ ADATOK
+  </span>
 
-  </div>
+</div>
 
-
-  <div class="headerRight">
-
-
-    <a
-      class="shareLink"
-      href="${PUBLIC_URL}"
-    >
-      🔗 ${PUBLIC_URL}
-    </a>
+</div>
 
 
-    <button
-      class="copy"
-      id="copyButton"
-    >
-      MÁSOLÁS
-    </button>
+<div class="clockWrap">
+
+<span
+  class="clock"
+  id="clock"
+>
+  --:--
+</span>
+
+<span class="refresh">
+  FRISSÍTVE:
+  ${shortTime(oahTime)}
+</span>
+
+</div>
 
 
-  </div>
+<div class="headerRight">
+
+
+<div class="signature">
+  IGLÓDI
+</div>
+
+
+<div class="share">
+
+<a
+  class="shareLink"
+  href="${PUBLIC_URL}"
+>
+  🔗 ${PUBLIC_URL}
+</a>
+
+<button
+  class="copy"
+  id="copyButton"
+>
+  MÁSOLÁS
+</button>
+
+</div>
+
+
+</div>
 
 
 </div>
@@ -1622,15 +2743,13 @@ canvas{
 
 
 <!-- =========================================================
-     FELSŐ 3 PANEL
+     FELSŐ SOR
 ========================================================== -->
-
 
 <div class="topGrid">
 
 
 <!-- TELJESÍTMÉNY -->
-
 
 <div class="panel">
 
@@ -1645,16 +2764,13 @@ canvas{
 
 <div class="bigRow">
 
-
 <div class="bigPower">
   ${totalText}
 </div>
 
-
 <div class="smallCaption">
   ÖSSZTELJESÍTMÉNY
 </div>
-
 
 </div>
 
@@ -1664,7 +2780,6 @@ canvas{
 
 <div class="chartHead">
 
-
 <div class="chartName">
   TELJESÍTMÉNY VÁLTOZÁSA • MW
 </div>
@@ -1672,36 +2787,28 @@ canvas{
 
 <div class="buttons">
 
-
 <button
-  class="period active"
-  data-chart="power"
+  class="period"
   data-hours="6"
 >
   6 ÓRA
 </button>
 
-
 <button
-  class="period"
-  data-chart="power"
+  class="period active"
   data-hours="24"
 >
   24 ÓRA
 </button>
 
-
 <button
   class="period"
-  data-chart="power"
   data-hours="240"
 >
   10 NAP
 </button>
 
-
 </div>
-
 
 </div>
 
@@ -1721,25 +2828,13 @@ canvas{
 </div>
 
 
-<div class="source">
-
-OAH •
-
-${shortTime(oahTime)} •
-
-${oahStatus}
-
-</div>
-
-
 </div>
 
 
 
-<!-- BLOKKOK -->
+<!-- 4 BLOKK -->
 
-
-<div class="panel">
+<div class="panel blockPanel">
 
 
 <div class="blocks">
@@ -1749,23 +2844,38 @@ ${blocks.map(
   (
     value,
     index
-  ) => `
+  ) => {
+
+    const n =
+      Number(value);
+
+    const pct =
+      Number.isFinite(n)
+        ? Math.max(
+            0,
+            Math.min(
+              100,
+              Math.round(
+                n / 500 * 100
+              )
+            )
+          )
+        : 0;
+
+    return `
 
 <div class="block">
 
 
 <div class="blockName">
-
-${index + 1}. BLOKK
-
+  ${index + 1}. BLOKK
 </div>
 
 
 <div
-  class="blockValue"
-  style="${
-    Number(value) > 0
-      ? "color:#65df58"
+  class="blockValue ${
+    n > 0
+      ? "on"
       : ""
   }"
 >
@@ -1780,40 +2890,26 @@ ${
 
 
 <div
-  style="
-    position:absolute;
-    left:14px;
-    right:14px;
-    bottom:45px;
-    height:3px;
-    background:#273847;
-  "
+  class="blockPct ${
+    n > 0
+      ? "on"
+      : ""
+  }"
 >
+  ${pct}%
+</div>
+
+
+<div class="blockBar">
 
 <div
+  class="blockBarFill"
   style="
-    height:100%;
-    width:${
-      Number.isFinite(
-        Number(value)
-      )
-        ? Math.max(
-            0,
-            Math.min(
-              100,
-              Math.round(
-                Number(value) /
-                500 *
-                100
-              )
-            )
-          )
-        : 0
-    }%;
+    width:${pct}%;
     background:${
-      Number(value) > 0
+      n > 0
         ? "#65df58"
-        : "#344652"
+        : "#354654"
     };
   "
 ></div>
@@ -1821,34 +2917,11 @@ ${
 </div>
 
 
-<div
-  style="
-    position:absolute;
-    left:14px;
-    bottom:24px;
-    color:#8998a8;
-    font-size:9px;
-  "
->
-
-${
-  Number.isFinite(
-    Number(value)
-  )
-    ? Math.round(
-        Number(value) /
-        500 *
-        100
-      ) + "%"
-    : "—"
-}
-
 </div>
 
+`;
 
-</div>
-
-`
+  }
 ).join("")}
 
 
@@ -1870,40 +2943,12 @@ ${oahStatus}
 
 
 
-<!-- DUNA / HŐ / HATÁR -->
-
+<!-- JOBB PANEL -->
 
 <div class="panel">
 
 
 <div class="pad">
-
-
-<div class="sectionTitle">
-  🌊 DUNA • PAKS FŐÁG
-</div>
-
-
-<div class="bigRow">
-
-
-<div class="bigWater">
-
-${waterText}
-
-</div>
-
-
-<div
-  class="status ${riverClass}"
->
-
-${riverLabel}
-
-</div>
-
-
-</div>
 
 
 <div class="metrics">
@@ -1915,7 +2960,7 @@ ${riverLabel}
   VÍZHOZAM
 </div>
 
-<div class="metricValue">
+<div class="metricValue blue">
   ${flowText}
 </div>
 
@@ -1928,7 +2973,7 @@ ${riverLabel}
   DUNA VÍZHŐ
 </div>
 
-<div class="metricValue">
+<div class="metricValue blue">
   ${tempText}
 </div>
 
@@ -1965,12 +3010,10 @@ NINCS FRISS HITELES ADAT
 
 <div class="gauge">
 
-
 <div
   class="marker"
   style="left:${markerPct}%"
 ></div>
-
 
 </div>
 
@@ -1982,11 +3025,11 @@ NINCS FRISS HITELES ADAT
 </span>
 
 <span>
-  −134 CM
+  −134 cm
 </span>
 
 <span>
-  −144 CM
+  −144 cm • LEÁLLÁSI SZINT
 </span>
 
 </div>
@@ -1996,7 +3039,6 @@ NINCS FRISS HITELES ADAT
 
 
 <div class="distance">
-
 
 <div class="distanceNumber">
 
@@ -2011,17 +3053,14 @@ ${
 
 </div>
 
-
 <div class="distanceText">
-  −134 CM KÜSZÖBIG
+  LEÁLLÁSI KÜSZÖBIG
 </div>
-
 
 </div>
 
 
 <div class="distance">
-
 
 <div class="distanceNumber">
 
@@ -2036,26 +3075,15 @@ ${
 
 </div>
 
-
 <div class="distanceText">
-  −144 CM HATÁRIG
+  BIZTONSÁGI HATÁRIG
+</div>
+
 </div>
 
 
 </div>
 
-
-</div>
-
-
-</div>
-
-
-<div class="source">
-
-VÍZÜGY •
-
-${shortTime(riverTime)}
 
 </div>
 
@@ -2068,56 +3096,71 @@ ${shortTime(riverTime)}
 
 
 <!-- =========================================================
-     NAGY FOLYAMATÁBRA
+     NAGY VÍZRENDSZER
 ========================================================== -->
 
-
-<div class="systemPanel">
-
-
-<div class="systemTitle">
+<div class="hydroPanel">
 
 
-<div class="systemTitleMain">
+<div class="scene">
 
-DUNA → FENÉKKÜSZÖB →
-HIDEGVÍZ-CSATORNA →
-SZIVATTYÚK → ERŐMŰ
 
+<div class="sceneTitle tRiver">
+  DUNA (FŐÁG)
+</div>
+
+<div class="sceneTitle tThreshold">
+  FENÉKKÜSZÖB (KŐSZÓRÁS)
+</div>
+
+<div class="sceneTitle tHvcs">
+  HIDEGVÍZ-CSATORNA<br>
+  (ÖBLÖZET)
+</div>
+
+<div class="sceneTitle tPumps">
+  SZIVATTYÚK<br>
+  (HŰTŐVÍZ)
+</div>
+
+<div class="sceneTitle tPlant">
+  PAKSI ATOMERŐMŰ
 </div>
 
 
-<div class="systemTitleLive">
 
-VÍZÜGY ÉLŐ MÉRÉSEK
+<!-- VÍZ -->
 
+<div class="riverMain"></div>
+
+<div class="riseWater"></div>
+
+<div class="riseLine"></div>
+
+<div class="upWater"></div>
+
+<div class="downWater"></div>
+
+<div class="hvcsRise"></div>
+
+<div class="hvcsWater"></div>
+
+<div class="bed"></div>
+
+
+
+<!-- MÉRÉSEK -->
+
+<div class="reading rRiver">
+
+<div class="readLab">
+  AKTUÁLIS
 </div>
 
-
-</div>
-
-
-
-<!-- FELSŐ ÉLŐ ADATSOR -->
-
-
-<div class="dataRail">
-
-
-<div class="dataBox">
-
-
-<div class="dataLabel">
-  DUNA • PAKS FŐÁG
-</div>
-
-
-<div class="dataValue blue">
+<div class="readVal blue">
 
 ${
-  Number.isFinite(
-    water
-  )
+  Number.isFinite(water)
     ? water +
       " cm"
     : "—"
@@ -2126,48 +3169,38 @@ ${
 <span
   class="dir ${riverDir.cls}"
 >
-  ${riverDir.symbol}
+${riverDir.symbol}
 </span>
 
 </div>
 
-
-<div class="dataSub">
+<div class="readSub">
 
 ${
-  Number.isFinite(
-    riverMbf
-  )
-    ? fmt2(
-        riverMbf
-      ) +
+  Number.isFinite(riverMbf)
+    ? fmt2(riverMbf) +
       " mBf"
     : "—"
 }
 
 </div>
 
-
-<div class="dataTime">
-
-${shortTime(riverTime)}
+<div class="readTime">
+  MÉRÉS:
+  ${shortTime(riverTime)}
+</div>
 
 </div>
 
 
+
+<div class="reading rUp">
+
+<div class="readLab">
+  FELVÍZ
 </div>
 
-
-
-<div class="dataBox">
-
-
-<div class="dataLabel">
-  FENÉKKÜSZÖB • FELVÍZ
-</div>
-
-
-<div class="dataValue green">
+<div class="readVal green">
 
 ${
   Number.isFinite(
@@ -2186,8 +3219,7 @@ ${upDir.symbol}
 
 </div>
 
-
-<div class="dataSub">
+<div class="readSub">
 
 ${
   Number.isFinite(
@@ -2202,34 +3234,27 @@ ${
 
 </div>
 
-
-<div class="dataTime">
-
-${shortTime(
-  thresholdUpTime
-)}
+<div class="readTime">
+  MÉRÉS:
+  ${shortTime(
+    thresholdUpTime
+  )}
+</div>
 
 </div>
 
 
+
+<div class="upliftCard">
+
+<div class="upliftLabel">
+  DUZZASZTÁS EREDMÉNYE
 </div>
 
-
-
-<div class="dataBox upliftBox">
-
-
-<div class="dataLabel">
-  DUZZASZTÁS • FELVÍZ − ALVÍZ
-</div>
-
-
-<div class="dataValue green">
+<div class="upliftValue">
 
 ${
-  Number.isFinite(
-    uplift
-  )
+  Number.isFinite(uplift)
     ? (
         uplift >= 0
           ? "+"
@@ -2242,30 +3267,31 @@ ${
 
 </div>
 
+<div class="upliftSub">
+  FELVÍZ − ALVÍZ
+</div>
 
-<div class="dataSub">
-  MÉRT KÜLÖNBSÉG
+<div class="miniGraph">
+
+<div class="miniGrid"></div>
+
+<div class="miniLine"></div>
+
+<div class="miniDot"></div>
+
+</div>
+
 </div>
 
 
-<div class="dataTime">
-  ÉLŐ
+
+<div class="reading rDown">
+
+<div class="readLab">
+  ALVÍZ
 </div>
 
-
-</div>
-
-
-
-<div class="dataBox">
-
-
-<div class="dataLabel">
-  FENÉKKÜSZÖB • ALVÍZ
-</div>
-
-
-<div class="dataValue blue">
+<div class="readVal blue">
 
 ${
   Number.isFinite(
@@ -2284,8 +3310,7 @@ ${downDir.symbol}
 
 </div>
 
-
-<div class="dataSub">
+<div class="readSub">
 
 ${
   Number.isFinite(
@@ -2300,34 +3325,27 @@ ${
 
 </div>
 
-
-<div class="dataTime">
-
-${shortTime(
-  thresholdDownTime
-)}
+<div class="readTime">
+  MÉRÉS:
+  ${shortTime(
+    thresholdDownTime
+  )}
+</div>
 
 </div>
 
 
+
+<div class="reading rHvcs">
+
+<div class="readLab">
+  AKTUÁLIS
 </div>
 
-
-
-<div class="dataBox">
-
-
-<div class="dataLabel">
-  HIDEGVÍZ-CSATORNA • ÖBLÖZET
-</div>
-
-
-<div class="dataValue blue">
+<div class="readVal blue">
 
 ${
-  Number.isFinite(
-    hvcs
-  )
+  Number.isFinite(hvcs)
     ? hvcs +
       " cm"
     : "—"
@@ -2341,13 +3359,10 @@ ${hvcsDir.symbol}
 
 </div>
 
-
-<div class="dataSub">
+<div class="readSub">
 
 ${
-  Number.isFinite(
-    hvcsMbf
-  )
+  Number.isFinite(hvcsMbf)
     ? fmt2(
         hvcsMbf
       ) +
@@ -2357,147 +3372,119 @@ ${
 
 </div>
 
-
-<div class="dataTime">
-
-${shortTime(hvcsTime)}
-
+<div class="readTime">
+  MÉRÉS:
+  ${shortTime(hvcsTime)}
 </div>
-
-
-</div>
-
 
 </div>
 
 
 
-<!-- RAJZ -->
+<!-- FENÉKKÜSZÖB -->
 
+<div class="wallL"></div>
 
-<div class="systemScene">
+<div class="wallR"></div>
 
-
-<div class="riverLeft"></div>
-
-<div class="waterRise"></div>
-
-<div class="riseSurface"></div>
-
-<div class="riverRight"></div>
-
-<div class="riverBed"></div>
+<div class="thresholdRock"></div>
 
 
 
-<div class="upliftBadge">
+<!-- RÁCS -->
+
+<div class="rackLabel">
+  SZŰRŐRÁCS
+</div>
+
+<div class="rack"></div>
 
 
-<div class="upliftBadgeLabel">
-  DUZZASZTÁS EREDMÉNYE
+
+<!-- SZIVATTYÚK -->
+
+<div class="pump p1"></div>
+
+<div class="pump p2"></div>
+
+<div class="pump p3"></div>
+
+
+
+<!-- ERŐMŰ -->
+
+<div class="plant">
+
+<div class="chimney"></div>
+
+<div class="plantName">
+  PAKSI<br>
+  ATOMERŐMŰ
+</div>
+
+<div class="plantMw">
+  ${totalText}
+</div>
+
 </div>
 
 
-<div class="upliftBadgeValue">
+
+<!-- ÖBLÖZET PANEL -->
+
+<div class="hvcsPanel">
+
+<div class="hvcsPanelTitle">
+  SZIVATTYÚ SZINT • ÖBLÖZET
+</div>
+
+<div class="hvcsPanelValue">
 
 ${
-  Number.isFinite(
-    uplift
-  )
-    ? (
-        uplift >= 0
-          ? "+"
-          : ""
+  Number.isFinite(hvcsMbf)
+    ? fmt2(
+        hvcsMbf
       ) +
-      uplift +
-      " cm"
+      " mBf"
     : "—"
 }
 
 </div>
 
+<div class="hvcsPanelSub">
+  VÍZÜGY ÉLŐ MÉRÉSI ADAT
+</div>
 
 </div>
 
 
 
-<div class="threshold"></div>
-
-
-<div class="thresholdText">
-
-KÖVES FENÉKKÜSZÖB
-
-</div>
-
-
-
-<div class="rack"></div>
-
-
-<div class="rackText">
-
-HIDEGVÍZ-CSATORNA
-
-</div>
-
-
-
-<div class="pump pump1"></div>
-
-<div class="pump pump2"></div>
-
-
-
-<div class="plant">
-
-
-<div class="plantName">
-
-PAKSI<br>
-ATOMERŐMŰ
-
-</div>
-
-
-<div class="plantMw">
-
-${totalText}
-
-</div>
-
-
-</div>
-
-
+<!-- NYILAK -->
 
 <div class="flowArrow fa1">
   →
 </div>
 
-
 <div class="flowArrow fa2">
   →
 </div>
 
-
 <div class="flowArrow fa3">
-  →
+  ↑
+</div>
+
+<div class="flowArrow fa4">
+  ↑
 </div>
 
 
 
-<div class="sceneNote">
+<!-- LEÁLLÁSI SZINT -->
 
-SEMATIKUS ÁBRA •
+<div class="shutdownLine"></div>
 
-A VÍZFELSZÍN RAJZA NEM SZINTEZETT HOSSZ-SZELVÉNY •
-
-A MÉRÉSI SZÁMOK IRÁNYADÓK
-
-</div>
-
-
+<div class="shutdownText">
+  −144 cm • LEÁLLÁSI SZINT
 </div>
 
 
@@ -2506,27 +3493,22 @@ A MÉRÉSI SZÁMOK IRÁNYADÓK
 
 
 <!-- =========================================================
-     ALSÓ ÉLŐ ADATKÁRTYÁK
+     ALSÓ ADATSOR
 ========================================================== -->
 
-
-<div class="summaryRail">
-
-
-<div class="summary">
+<div class="bottomRail">
 
 
-<div class="summaryLabel">
-  DUNA PAKS
+<div class="bottomCard">
+
+<div class="bottomLabel">
+  DUNA – PAKS (FŐÁG)
 </div>
 
-
-<div class="summaryValue blue">
+<div class="bottomValue blue">
 
 ${
-  Number.isFinite(
-    water
-  )
+  Number.isFinite(water)
     ? water +
       " cm"
     : "—"
@@ -2534,27 +3516,37 @@ ${
 
 </div>
 
+<div class="bottomSub">
 
-<div class="summarySub">
+${
+  Number.isFinite(riverMbf)
+    ? fmt2(riverMbf) +
+      " mBf"
+    : "—"
+}
 
-${shortTime(riverTime)}
+</div>
+
+<div class="bottomSub">
+  MÉRÉS:
+  ${shortTime(riverTime)}
+</div>
+
+<div class="bottomSub">
+  🌊 ${flowText}
+</div>
 
 </div>
 
 
+
+<div class="bottomCard">
+
+<div class="bottomLabel">
+  FENÉKKÜSZÖB FELVÍZ
 </div>
 
-
-
-<div class="summary">
-
-
-<div class="summaryLabel">
-  FELVÍZ
-</div>
-
-
-<div class="summaryValue green">
+<div class="bottomValue blue">
 
 ${
   Number.isFinite(
@@ -2567,29 +3559,43 @@ ${
 
 </div>
 
+<div class="bottomSub">
 
-<div class="summarySub">
+${
+  Number.isFinite(
+    thresholdUpMbf
+  )
+    ? fmt2(
+        thresholdUpMbf
+      ) +
+      " mBf"
+    : "—"
+}
 
-${shortTime(
-  thresholdUpTime
-)}
+</div>
+
+<div class="bottomSub">
+  MÉRÉS:
+  ${shortTime(
+    thresholdUpTime
+  )}
+</div>
+
+<div class="bottomDanger">
+  −144 cm LEÁLLÁSI SZINT
+</div>
 
 </div>
 
 
+
+<div class="bottomCard">
+
+<div class="bottomLabel">
+  FENÉKKÜSZÖB ALVÍZ
 </div>
 
-
-
-<div class="summary">
-
-
-<div class="summaryLabel">
-  ALVÍZ
-</div>
-
-
-<div class="summaryValue blue">
+<div class="bottomValue blue">
 
 ${
   Number.isFinite(
@@ -2602,34 +3608,46 @@ ${
 
 </div>
 
-
-<div class="summarySub">
-
-${shortTime(
-  thresholdDownTime
-)}
-
-</div>
-
-
-</div>
-
-
-
-<div class="summary highlight">
-
-
-<div class="summaryLabel">
-  DUZZASZTÁS
-</div>
-
-
-<div class="summaryValue green">
+<div class="bottomSub">
 
 ${
   Number.isFinite(
-    uplift
+    thresholdDownMbf
   )
+    ? fmt2(
+        thresholdDownMbf
+      ) +
+      " mBf"
+    : "—"
+}
+
+</div>
+
+<div class="bottomSub">
+  MÉRÉS:
+  ${shortTime(
+    thresholdDownTime
+  )}
+</div>
+
+<div class="bottomDanger">
+  −144 cm LEÁLLÁSI SZINT
+</div>
+
+</div>
+
+
+
+<div class="bottomCard highlight">
+
+<div class="bottomLabel">
+  DUZZASZTÁS EREDMÉNYE
+</div>
+
+<div class="bottomValue green">
+
+${
+  Number.isFinite(uplift)
     ? (
         uplift >= 0
           ? "+"
@@ -2642,30 +3660,24 @@ ${
 
 </div>
 
-
-<div class="summarySub">
+<div class="bottomSub">
   FELVÍZ − ALVÍZ
 </div>
 
-
 </div>
 
 
 
-<div class="summary">
+<div class="bottomCard">
 
-
-<div class="summaryLabel">
+<div class="bottomLabel">
   HIDEGVÍZ-CSATORNA
 </div>
 
-
-<div class="summaryValue blue">
+<div class="bottomValue blue">
 
 ${
-  Number.isFinite(
-    hvcs
-  )
+  Number.isFinite(hvcs)
     ? hvcs +
       " cm"
     : "—"
@@ -2673,21 +3685,73 @@ ${
 
 </div>
 
-
-<div class="summarySub">
+<div class="bottomSub">
 
 ${
-  Number.isFinite(
-    hvcsMbf
-  )
-    ? fmt2(
-        hvcsMbf
-      ) +
-      " mBf • "
-    : ""
+  Number.isFinite(hvcsMbf)
+    ? fmt2(hvcsMbf) +
+      " mBf"
+    : "—"
 }
 
-${shortTime(hvcsTime)}
+</div>
+
+<div class="bottomSub">
+  MÉRÉS:
+  ${shortTime(hvcsTime)}
+</div>
+
+<div class="bottomDanger">
+  −144 cm LEÁLLÁSI SZINT
+</div>
+
+</div>
+
+
+
+<div class="bottomCard">
+
+<div class="bottomLabel">
+  SZIVATTYÚ SZINT (ÖBLÖZET)
+</div>
+
+<div class="bottomValue blue">
+
+${
+  Number.isFinite(hvcsMbf)
+    ? fmt2(hvcsMbf) +
+      " mBf"
+    : "—"
+}
+
+</div>
+
+<div class="bottomSub">
+  MÉRÉS:
+  ${shortTime(hvcsTime)}
+</div>
+
+<div class="bottomDanger">
+  ÉLŐ VÍZÜGY MÉRÉS
+</div>
+
+</div>
+
+
+
+<div class="bottomCard">
+
+<div class="bottomLabel">
+  ATOMERŐMŰ TELJESÍTMÉNYE
+</div>
+
+<div class="bottomValue green">
+  ${totalText}
+</div>
+
+<div class="bottomGraph">
+  <div class="bottomGraphLine"></div>
+</div>
 
 </div>
 
@@ -2700,53 +3764,23 @@ ${shortTime(hvcsTime)}
 
 
 <!-- =========================================================
-     ALSÓ SOR
+     LÁBLÉC
 ========================================================== -->
 
+<div class="footer">
 
-<div class="bottomBar">
-
-
-<div class="bottomInfo">
-
-ADATFORRÁSOK:
-OAH • VÍZÜGY
-
-&nbsp;&nbsp;|&nbsp;&nbsp;
-
-KILÉPŐ VÍZHŐ:
-NINCS FRISS HITELES ADAT
-
+<div>
+  ADATFORRÁSOK:
+  OAH • OVF / VÍZÜGY
 </div>
 
-
-<div class="bottomShare">
-
-
-<a
-  class="shareLink"
-  href="${PUBLIC_URL}"
->
-
-🔗 ${PUBLIC_URL}
-
-</a>
-
-
-<button
-  class="copy"
-  id="copyButtonBottom"
->
-  MÁSOLÁS
-</button>
-
-
+<div>
+  AZ ADATOK TÁJÉKOZTATÓ JELLEGŰEK.
 </div>
 
-
-<div class="version">
-
-${VERSION}
+<div>
+  ${VERSION}
+</div>
 
 </div>
 
@@ -2762,9 +3796,7 @@ ${VERSION}
   class="toast"
   id="toast"
 >
-
-Link másolva
-
+  Link másolva
 </div>
 
 
@@ -2776,15 +3808,144 @@ const PUBLIC_URL =
   "${PUBLIC_URL}";
 
 
-let selectedRange = {
-
-  power:
-    6
-};
+const BOARD_WIDTH =
+  1536;
 
 
-let cache =
+const BOARD_HEIGHT =
+  864;
+
+
+let selectedHours =
+  24;
+
+
+let historyCache =
   {};
+
+
+// ============================================================
+// TELJES FEKVŐ KÉP AUTOMATIKUS MÉRETEZÉSE
+// ============================================================
+
+function fitBoard() {
+
+  const viewport =
+    document.getElementById(
+      "vpaksViewport"
+    );
+
+
+  const board =
+    document.getElementById(
+      "vpaksBoard"
+    );
+
+
+  if (
+    !viewport ||
+    !board
+  ) {
+    return;
+  }
+
+
+  /*
+    A teljes 1536 px széles fekvő dashboard
+    mindig ráfér a TELEFON SZÉLESSÉGÉRE.
+
+    Álló telefonnál:
+    teljes fekvő kép kicsiben.
+
+    Fekvő telefonnál:
+    automatikusan sokkal nagyobb.
+
+    A böngésző pinch zoomja nincs tiltva.
+  */
+
+  const availableWidth =
+    window.innerWidth;
+
+
+  const scale =
+    Math.min(
+      1,
+      availableWidth /
+      BOARD_WIDTH
+    );
+
+
+  const scaledWidth =
+    BOARD_WIDTH *
+    scale;
+
+
+  const scaledHeight =
+    BOARD_HEIGHT *
+    scale;
+
+
+  viewport.style.height =
+    scaledHeight +
+    "px";
+
+
+  board.style.transform =
+    "scale(" +
+    scale +
+    ")";
+
+
+  board.style.left =
+    Math.max(
+      0,
+      (
+        availableWidth -
+        scaledWidth
+      ) /
+      2
+    ) +
+    "px";
+
+
+  board.style.top =
+    "0px";
+}
+
+
+// ============================================================
+// BUDAPEST ÓRA
+// ============================================================
+
+function updateClock() {
+
+  const element =
+    document.getElementById(
+      "clock"
+    );
+
+
+  if (!element) {
+    return;
+  }
+
+
+  element.textContent =
+    new Date()
+      .toLocaleTimeString(
+        "hu-HU",
+        {
+          timeZone:
+            "Europe/Budapest",
+
+          hour:
+            "2-digit",
+
+          minute:
+            "2-digit"
+        }
+      );
+}
 
 
 // ============================================================
@@ -2816,8 +3977,7 @@ async function getHistory(
 
     if (
       json &&
-      json.ok ===
-      true &&
+      json.ok === true &&
       Array.isArray(
         json.data
       )
@@ -2839,30 +3999,30 @@ async function loadHistory(
 ) {
 
   if (
-    cache[
+    historyCache[
       hours
     ]
   ) {
 
-    return cache[
+    return historyCache[
       hours
     ];
   }
 
 
-  const data =
+  const rows =
     await getHistory(
       hours
     );
 
 
-  cache[
+  historyCache[
     hours
   ] =
-    data;
+    rows;
 
 
-  return data;
+  return rows;
 }
 
 
@@ -2870,23 +4030,17 @@ async function loadHistory(
 // TELJESÍTMÉNY GRAFIKON
 // ============================================================
 
-async function drawChart(
-  canvasId,
-  field,
-  hours,
-  unit
+async function drawPowerChart(
+  hours
 ) {
 
   const canvas =
     document.getElementById(
-      canvasId
+      "powerChart"
     );
 
 
-  if (
-    !canvas
-  ) {
-
+  if (!canvas) {
     return;
   }
 
@@ -2901,51 +4055,40 @@ async function drawChart(
     rows
       .filter(
         row =>
-          row[
-            field
-          ] !== null &&
-          row[
-            field
-          ] !== undefined
+          row.power !== null &&
+          row.power !== undefined
       )
       .map(
         row => ({
-
           x:
-            Number(
-              row.ts
-            ),
-
+            Number(row.ts),
           y:
-            Number(
-              row[
-                field
-              ]
-            )
+            Number(row.power)
         })
       )
       .filter(
         point =>
-          Number.isFinite(
-            point.x
-          ) &&
-          Number.isFinite(
-            point.y
-          )
+          Number.isFinite(point.x) &&
+          Number.isFinite(point.y)
       )
       .sort(
-        (
-          a,
-          b
-        ) =>
-          a.x -
-          b.x
+        (a, b) =>
+          a.x - b.x
       );
 
 
-  const rect =
-    canvas
-      .getBoundingClientRect();
+  /*
+    clientWidth / clientHeight:
+    az eredeti 1536-as dashboard mérete,
+    nem a CSS-sel lekicsinyített méret.
+  */
+
+  const W =
+    canvas.clientWidth;
+
+
+  const H =
+    canvas.clientHeight;
 
 
   const ratio =
@@ -2954,22 +4097,16 @@ async function drawChart(
 
 
   canvas.width =
-    Math.max(
-      1,
-      Math.floor(
-        rect.width *
-        ratio
-      )
+    Math.floor(
+      W *
+      ratio
     );
 
 
   canvas.height =
-    Math.max(
-      1,
-      Math.floor(
-        rect.height *
-        ratio
-      )
+    Math.floor(
+      H *
+      ratio
     );
 
 
@@ -2989,14 +4126,6 @@ async function drawChart(
   );
 
 
-  const W =
-    rect.width;
-
-
-  const H =
-    rect.height;
-
-
   ctx.clearRect(
     0,
     0,
@@ -3006,28 +4135,20 @@ async function drawChart(
 
 
   const pad = {
-
-    left:
-      42,
-
-    right:
-      8,
-
-    top:
-      8,
-
-    bottom:
-      20
+    left: 38,
+    right: 8,
+    top: 7,
+    bottom: 19
   };
 
 
-  const chartW =
+  const cw =
     W -
     pad.left -
     pad.right;
 
 
-  const chartH =
+  const ch =
     H -
     pad.top -
     pad.bottom;
@@ -3037,8 +4158,7 @@ async function drawChart(
     "rgba(115,145,170,.18)";
 
 
-  ctx.lineWidth =
-    1;
+  ctx.lineWidth = 1;
 
 
   for (
@@ -3049,19 +4169,17 @@ async function drawChart(
 
     const y =
       pad.top +
-      chartH *
+      ch *
       i /
       4;
 
 
     ctx.beginPath();
 
-
     ctx.moveTo(
       pad.left,
       y
     );
-
 
     ctx.lineTo(
       W -
@@ -3069,14 +4187,12 @@ async function drawChart(
       y
     );
 
-
     ctx.stroke();
   }
 
 
   if (
-    data.length ===
-    0
+    data.length === 0
   ) {
 
     ctx.fillStyle =
@@ -3084,17 +4200,13 @@ async function drawChart(
 
 
     ctx.font =
-      "10px -apple-system";
-
-
-    ctx.textAlign =
-      "left";
+      "9px -apple-system";
 
 
     ctx.fillText(
       "Új valódi mérésre várunk…",
       pad.left +
-      8,
+      6,
       H /
       2
     );
@@ -3107,8 +4219,8 @@ async function drawChart(
   let minY =
     Math.min(
       ...data.map(
-        point =>
-          point.y
+        p =>
+          p.y
       )
     );
 
@@ -3116,37 +4228,22 @@ async function drawChart(
   let maxY =
     Math.max(
       ...data.map(
-        point =>
-          point.y
+        p =>
+          p.y
       )
     );
 
 
   if (
-    minY ===
-    maxY
+    minY === maxY
   ) {
 
-    const delta =
-      Math.max(
-        1,
-        Math.abs(
-          minY
-        ) *
-        .02
-      );
-
-
-    minY -=
-      delta;
-
-
-    maxY +=
-      delta;
+    minY -= 2;
+    maxY += 2;
   }
 
 
-  const margin =
+  const extra =
     Math.max(
       1,
       (
@@ -3157,12 +4254,8 @@ async function drawChart(
     );
 
 
-  minY -=
-    margin;
-
-
-  maxY +=
-    margin;
+  minY -= extra;
+  maxY += extra;
 
 
   const maxX =
@@ -3190,7 +4283,7 @@ async function drawChart(
           minX
         )
       ) *
-      chartW;
+      cw;
 
 
   const sy =
@@ -3206,15 +4299,15 @@ async function drawChart(
           minY
         )
       ) *
-      chartH;
+      ch;
 
 
   ctx.fillStyle =
-    "#708296";
+    "#738598";
 
 
   ctx.font =
-    "8px -apple-system";
+    "7px -apple-system";
 
 
   ctx.textAlign =
@@ -3239,21 +4332,16 @@ async function drawChart(
 
     const y =
       pad.top +
-      chartH *
+      ch *
       i /
       2;
 
 
     ctx.fillText(
-      Math.round(
-        value
-      ) +
-      " " +
-      unit,
-
+      Math.round(value) +
+      " MW",
       pad.left -
       4,
-
       y +
       3
     );
@@ -3265,11 +4353,8 @@ async function drawChart(
 
 
   const divisions =
-    hours >=
-    240
-
+    hours >= 240
       ? 4
-
       : 3;
 
 
@@ -3279,7 +4364,7 @@ async function drawChart(
     i++
   ) {
 
-    const timestamp =
+    const ts =
       minX +
       (
         maxX -
@@ -3289,62 +4374,50 @@ async function drawChart(
       divisions;
 
 
-    const date =
-      new Date(
-        timestamp
-      );
+    const d =
+      new Date(ts);
 
 
     const label =
-      hours >=
-      240
-
-        ? date
-            .toLocaleDateString(
-              "hu-HU",
-              {
-                month:
-                  "2-digit",
-
-                day:
-                  "2-digit"
-              }
-            )
-
-        : date
-            .toLocaleTimeString(
-              "hu-HU",
-              {
-                hour:
-                  "2-digit",
-
-                minute:
-                  "2-digit"
-              }
-            );
+      hours >= 240
+        ? d.toLocaleDateString(
+            "hu-HU",
+            {
+              month:
+                "2-digit",
+              day:
+                "2-digit"
+            }
+          )
+        : d.toLocaleTimeString(
+            "hu-HU",
+            {
+              hour:
+                "2-digit",
+              minute:
+                "2-digit"
+            }
+          );
 
 
     ctx.fillText(
       label,
-      sx(
-        timestamp
-      ),
-      H -
-      5
+      sx(ts),
+      H - 4
     );
   }
 
 
   ctx.strokeStyle =
-    "#66df57";
+    "#65df58";
 
 
   ctx.fillStyle =
-    "#66df57";
+    "#65df58";
 
 
   ctx.lineWidth =
-    2.2;
+    2;
 
 
   ctx.lineJoin =
@@ -3360,25 +4433,19 @@ async function drawChart(
 
   data.forEach(
     (
-      point,
+      p,
       index
     ) => {
 
       const x =
-        sx(
-          point.x
-        );
-
+        sx(p.x);
 
       const y =
-        sy(
-          point.y
-        );
+        sy(p.y);
 
 
       if (
-        index ===
-        0
+        index === 0
       ) {
 
         ctx.moveTo(
@@ -3402,8 +4469,7 @@ async function drawChart(
 
   const last =
     data[
-      data.length -
-      1
+      data.length - 1
     ];
 
 
@@ -3411,12 +4477,8 @@ async function drawChart(
 
 
   ctx.arc(
-    sx(
-      last.x
-    ),
-    sy(
-      last.y
-    ),
+    sx(last.x),
+    sy(last.y),
     3.5,
     0,
     Math.PI *
@@ -3429,51 +4491,8 @@ async function drawChart(
 
 
 // ============================================================
-// IDŐTARTOMÁNY
+// GOMBOK
 // ============================================================
-
-function setRange(
-  hours,
-  button
-) {
-
-  selectedRange.power =
-    hours;
-
-
-  document
-    .querySelectorAll(
-      ".period"
-    )
-    .forEach(
-      element =>
-        element
-          .classList
-          .remove(
-            "active"
-          )
-    );
-
-
-  button
-    .classList
-    .add(
-      "active"
-    );
-
-
-  cache =
-    {};
-
-
-  drawChart(
-    "powerChart",
-    "power",
-    hours,
-    "MW"
-  );
-}
-
 
 document
   .querySelectorAll(
@@ -3486,13 +4505,37 @@ document
         "click",
         () => {
 
-          setRange(
+          selectedHours =
             Number(
-              button
-                .dataset
-                .hours
-            ),
-            button
+              button.dataset.hours
+            );
+
+
+          document
+            .querySelectorAll(
+              ".period"
+            )
+            .forEach(
+              b =>
+                b.classList
+                  .remove(
+                    "active"
+                  )
+            );
+
+
+          button.classList
+            .add(
+              "active"
+            );
+
+
+          historyCache =
+            {};
+
+
+          drawPowerChart(
+            selectedHours
           );
         }
       );
@@ -3501,54 +4544,8 @@ document
 
 
 // ============================================================
-// LINK MÁSOLÁS
+// MÁSOLÁS
 // ============================================================
-
-async function copyLink() {
-
-  try {
-
-    await navigator
-      .clipboard
-      .writeText(
-        PUBLIC_URL
-      );
-
-
-    const toast =
-      document
-        .getElementById(
-          "toast"
-        );
-
-
-    toast
-      .classList
-      .add(
-        "show"
-      );
-
-
-    setTimeout(
-      () =>
-        toast
-          .classList
-          .remove(
-            "show"
-          ),
-      1400
-    );
-
-
-  } catch {
-
-    window.prompt(
-      "Másold a linket:",
-      PUBLIC_URL
-    );
-  }
-}
-
 
 document
   .getElementById(
@@ -3556,17 +4553,48 @@ document
   )
   ?.addEventListener(
     "click",
-    copyLink
-  );
+    async () => {
+
+      try {
+
+        await navigator
+          .clipboard
+          .writeText(
+            PUBLIC_URL
+          );
 
 
-document
-  .getElementById(
-    "copyButtonBottom"
-  )
-  ?.addEventListener(
-    "click",
-    copyLink
+        const toast =
+          document
+            .getElementById(
+              "toast"
+            );
+
+
+        toast.classList
+          .add(
+            "show"
+          );
+
+
+        setTimeout(
+          () =>
+            toast.classList
+              .remove(
+                "show"
+              ),
+          1300
+        );
+
+
+      } catch {
+
+        window.prompt(
+          "Másold a linket:",
+          PUBLIC_URL
+        );
+      }
+    }
   );
 
 
@@ -3574,43 +4602,64 @@ document
 // START
 // ============================================================
 
-drawChart(
-  "powerChart",
-  "power",
-  6,
-  "MW"
+fitBoard();
+
+updateClock();
+
+setInterval(
+  updateClock,
+  15000
 );
+
+drawPowerChart(
+  24
+);
+
+
+// ============================================================
+// FORGATÁS
+// ============================================================
+
+function refit() {
+
+  clearTimeout(
+    window.__vpaksResize
+  );
+
+
+  window.__vpaksResize =
+    setTimeout(
+      () => {
+
+        fitBoard();
+
+        historyCache =
+          {};
+
+        drawPowerChart(
+          selectedHours
+        );
+
+      },
+      150
+    );
+}
 
 
 window.addEventListener(
   "resize",
+  refit
+);
+
+
+window.addEventListener(
+  "orientationchange",
   () => {
 
-    clearTimeout(
-      window
-        .__resizeTimer
+    setTimeout(
+      refit,
+      300
     );
-
-
-    window
-      .__resizeTimer =
-        setTimeout(
-          () => {
-
-            cache =
-              {};
-
-
-            drawChart(
-              "powerChart",
-              "power",
-              selectedRange.power,
-              "MW"
-            );
-
-          },
-          150
-        );
   }
 );
 
@@ -3619,5 +4668,24 @@ window.addEventListener(
 
 
 </body>
-
 </html>`;
+
+
+    return new Response(
+      html,
+      {
+        status: 200,
+        headers: {
+          "content-type":
+            "text/html;charset=UTF-8",
+
+          "cache-control":
+            "no-store, no-cache, must-revalidate",
+
+          "pragma":
+            "no-cache"
+        }
+      }
+    );
+  }
+};
