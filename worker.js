@@ -4,6 +4,15 @@ const OAH_URL =
 const VIZ_URL =
   "https://www.vizugy.hu/?AllomasVOA=16496188-97AB-11D4-BB62-00508BA24287&mapData=OrasIdosor&mapModule=OpGrafikon";
 
+const HVCS_URL =
+  "https://www.vizugy.hu/?AllomasVOA=762D32FE-1414-4A35-9121-6FCE1EED55B4&mapData=OrasIdosor&mapModule=OpGrafikon";
+
+const THRESHOLD_UP_URL =
+  "https://www.vizugy.hu/?AllomasVOA=3472EA24-55EA-4B05-B1D7-3695034CADB9&mapData=OrasIdosor&mapModule=OpGrafikon";
+
+const THRESHOLD_DOWN_URL =
+  "https://www.vizugy.hu/?AllomasVOA=D79FBC2B-EBE1-4BBE-A431-B3FA46D638B8&mapData=OrasIdosor&mapModule=OpGrafikon";
+
 const PUBLIC_URL =
   "https://paks-monitor.laszlo-iglodi.workers.dev";
 
@@ -11,23 +20,24 @@ const FB_IMAGE_RAW =
   "https://raw.githubusercontent.com/laszloiglodi-beep/Paks-monitor/main/60CF06BF-2068-420D-AC41-224FB3B75358.png";
 
 const VERSION =
-  "PAKS MONITOR V6";
+  "PAKS MONITOR V7";
 
-
-/*
-  ============================================================
-  KILÉPŐ VÍZ HŐ
-
-  Legutóbbi beemelt MVM mérés.
-  A dátumot külön kiírjuk, tehát nem jelenik meg élő adatként.
-  ============================================================
-*/
 
 const OUTLET_TEMP =
   34.9;
 
 const OUTLET_TEMP_DATE =
   "08.14";
+
+
+const PAKS_ZERO_MBF =
+  85.380;
+
+const LOCAL_ZERO_MBF =
+  85.000;
+
+const PUMP_MIN_MBF =
+  83.60;
 
 
 // ============================================================
@@ -86,8 +96,31 @@ function fmt1(value) {
     ? value.toLocaleString(
         "hu-HU",
         {
-          minimumFractionDigits: 1,
-          maximumFractionDigits: 1
+          minimumFractionDigits:
+            1,
+
+          maximumFractionDigits:
+            1
+        }
+      )
+    : "—";
+}
+
+
+function fmt2(value) {
+
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value)
+  )
+    ? value.toLocaleString(
+        "hu-HU",
+        {
+          minimumFractionDigits:
+            2,
+
+          maximumFractionDigits:
+            2
         }
       )
     : "—";
@@ -97,9 +130,11 @@ function fmt1(value) {
 function shortTime(value) {
 
   const match =
-    String(value || "").match(
-      /(\d{2}:\d{2})/
-    );
+    String(value || "")
+      .match(
+        /(\d{2}:\d{2})/
+      );
+
 
   return match
     ? match[1]
@@ -150,7 +185,8 @@ function getBudapestOffset(timestamp) {
     );
 
 
-  const values = {};
+  const values =
+    {};
 
 
   for (
@@ -200,6 +236,7 @@ function parseHuTimestamp(value) {
 
 
   if (!match) {
+
     return null;
   }
 
@@ -241,6 +278,404 @@ function parseHuTimestamp(value) {
 }
 
 
+function cmToMbf(
+  cm,
+  zero
+) {
+
+  return Number.isFinite(
+    cm
+  )
+    ? zero +
+      cm /
+      100
+    : null;
+}
+
+
+function direction(
+  current,
+  previous
+) {
+
+  if (
+    !Number.isFinite(
+      current
+    ) ||
+    !Number.isFinite(
+      previous
+    )
+  ) {
+
+    return {
+      symbol:
+        "→",
+
+      cls:
+        "flat"
+    };
+  }
+
+
+  if (
+    current >
+    previous
+  ) {
+
+    return {
+      symbol:
+        "↑",
+
+      cls:
+        "up"
+    };
+  }
+
+
+  if (
+    current <
+    previous
+  ) {
+
+    return {
+      symbol:
+        "↓",
+
+      cls:
+        "down"
+    };
+  }
+
+
+  return {
+    symbol:
+      "→",
+
+    cls:
+      "flat"
+  };
+}
+
+
+// ============================================================
+// VÍZÜGY ÁLTALÁNOS PARSER
+// ============================================================
+
+async function fetchVizStation(
+  url,
+  wantExtras = false
+) {
+
+  const result = {
+
+    value:
+      null,
+
+    flow:
+      null,
+
+    temp:
+      null,
+
+    time:
+      "—",
+
+    timestamp:
+      null,
+
+    previousValue:
+      null,
+
+    status:
+      "OK"
+  };
+
+
+  try {
+
+    const response =
+      await fetch(
+        url,
+        {
+          headers: {
+
+            "User-Agent":
+              "Mozilla/5.0 (compatible; PaksMonitor/7.0)"
+          },
+
+          cf: {
+
+            cacheTtl:
+              60,
+
+            cacheEverything:
+              false
+          }
+        }
+      );
+
+
+    if (
+      !response.ok
+    ) {
+
+      throw new Error(
+        "VIZ HTTP " +
+        response.status
+      );
+    }
+
+
+    const text =
+      clean(
+        await response.text()
+      );
+
+
+    const rowRegex =
+      /(20\d{2}\.\s*\d{2}\.\s*\d{2}\.?\s*\d{2}:\d{2})\s+(-?\d+)\s+(-|\d+(?:[.,]\d+)?)\s+(-|\d+(?:[.,]\d+)?)\s+(-|\d+(?:[.,]\d+)?)/g;
+
+
+    const rows =
+      [];
+
+
+    let match;
+
+
+    while (
+      (
+        match =
+          rowRegex.exec(
+            text
+          )
+      ) !== null
+    ) {
+
+      const timestamp =
+        parseHuTimestamp(
+          match[1]
+        );
+
+
+      if (
+        !Number.isFinite(
+          timestamp
+        )
+      ) {
+
+        continue;
+      }
+
+
+      rows.push({
+
+        timestamp,
+
+        time:
+          match[1],
+
+        water:
+          Number(
+            match[2]
+          ),
+
+        flow:
+          match[3],
+
+        temp1:
+          match[4],
+
+        temp2:
+          match[5]
+      });
+    }
+
+
+    rows.sort(
+      (
+        a,
+        b
+      ) =>
+        a.timestamp -
+        b.timestamp
+    );
+
+
+    if (
+      !rows.length
+    ) {
+
+      result.status =
+        "ADATHIBA";
+
+
+      return result;
+    }
+
+
+    const latest =
+      rows[
+        rows.length -
+        1
+      ];
+
+
+    const previous =
+      rows.length >
+      1
+
+        ? rows[
+            rows.length -
+            2
+          ]
+
+        : null;
+
+
+    if (
+      Number.isFinite(
+        latest.water
+      ) &&
+      latest.water >
+      -1000 &&
+      latest.water <
+      1000
+    ) {
+
+      result.value =
+        latest.water;
+    }
+
+
+    result.previousValue =
+      previous &&
+      Number.isFinite(
+        previous.water
+      )
+
+        ? previous.water
+
+        : null;
+
+
+    result.time =
+      latest.time;
+
+
+    result.timestamp =
+      latest.timestamp;
+
+
+    if (
+      wantExtras
+    ) {
+
+      if (
+        latest.flow !==
+        "-"
+      ) {
+
+        const f =
+          Number(
+            latest.flow
+              .replace(
+                ",",
+                "."
+              )
+          );
+
+
+        if (
+          Number.isFinite(
+            f
+          ) &&
+          f >= 0 &&
+          f <= 20000
+        ) {
+
+          result.flow =
+            f;
+        }
+      }
+
+
+      for (
+        const raw of
+        [
+          latest.temp1,
+          latest.temp2
+        ]
+      ) {
+
+        if (
+          !raw ||
+          raw === "-"
+        ) {
+
+          continue;
+        }
+
+
+        const t =
+          Number(
+            raw.replace(
+              ",",
+              "."
+            )
+          );
+
+
+        if (
+          Number.isFinite(
+            t
+          ) &&
+          t >= 0 &&
+          t <= 40
+        ) {
+
+          result.temp =
+            t;
+
+
+          break;
+        }
+      }
+    }
+
+
+    if (
+      !Number.isFinite(
+        result.value
+      )
+    ) {
+
+      result.status =
+        "ADATHIBA";
+    }
+
+
+    return result;
+
+
+  } catch (error) {
+
+    result.status =
+      "KAPCSOLATI HIBA";
+
+
+    console.log(
+      "VIZ STATION ERROR:",
+      error?.message ||
+      String(error)
+    );
+
+
+    return result;
+  }
+}
+
+
 // ============================================================
 // D1
 // ============================================================
@@ -265,10 +700,38 @@ async function ensureDB(env) {
         power INTEGER,
         water INTEGER,
         flow REAL,
-        temp REAL
+        temp REAL,
+        hvcs INTEGER,
+        threshold_up INTEGER,
+        threshold_down INTEGER
       )`
     )
     .run();
+
+
+  for (
+    const sql of
+    [
+
+      `ALTER TABLE measurements ADD COLUMN hvcs INTEGER`,
+
+      `ALTER TABLE measurements ADD COLUMN threshold_up INTEGER`,
+
+      `ALTER TABLE measurements ADD COLUMN threshold_down INTEGER`
+
+    ]
+  ) {
+
+    try {
+
+      await env.DB
+        .prepare(
+          sql
+        )
+        .run();
+
+    } catch {}
+  }
 
 
   await env.DB
@@ -283,12 +746,14 @@ async function ensureDB(env) {
 
 
 // ============================================================
-// DUNA HISTORY RESET
+// RESET
 // ============================================================
 
 async function resetRiverHistory(env) {
 
-  await ensureDB(env);
+  await ensureDB(
+    env
+  );
 
 
   await env.DB
@@ -297,7 +762,10 @@ async function resetRiverHistory(env) {
        SET
          water = NULL,
          flow = NULL,
-         temp = NULL`
+         temp = NULL,
+         hvcs = NULL,
+         threshold_up = NULL,
+         threshold_down = NULL`
     )
     .run();
 
@@ -309,7 +777,10 @@ async function resetRiverHistory(env) {
          power IS NULL
          AND water IS NULL
          AND flow IS NULL
-         AND temp IS NULL`
+         AND temp IS NULL
+         AND hvcs IS NULL
+         AND threshold_up IS NULL
+         AND threshold_down IS NULL`
     )
     .run();
 
@@ -336,35 +807,17 @@ async function getCurrentData() {
   let oahTime =
     "—";
 
+
   let oahTimestamp =
     null;
+
 
   let oahStatus =
     "OK";
 
 
-  let water =
-    null;
-
-  let flow =
-    null;
-
-  let temp =
-    null;
-
-
-  let riverTime =
-    "—";
-
-  let riverTimestamp =
-    null;
-
-  let riverStatus =
-    "OK";
-
-
   // ==========================================================
-  // OAH – PAKSI BLOKKOK
+  // OAH
   // ==========================================================
 
   try {
@@ -376,10 +829,11 @@ async function getCurrentData() {
           headers: {
 
             "User-Agent":
-              "Mozilla/5.0 (compatible; PaksMonitor/6.0)"
+              "Mozilla/5.0 (compatible; PaksMonitor/7.0)"
           },
 
           cf: {
+
             cacheTtl:
               60,
 
@@ -413,7 +867,9 @@ async function getCurrentData() {
       );
 
 
-    if (date) {
+    if (
+      date
+    ) {
 
       oahTime =
         date[1];
@@ -426,32 +882,29 @@ async function getCurrentData() {
     }
 
 
-    /*
-      Elsődleges parser.
-    */
-
     const mainPower =
       text.match(
         /1\.\s*blokk\s*2\.\s*blokk\s*3\.\s*blokk\s*4\.\s*blokk\s*(\d+)\s*MW\s*(\d+)\s*MW\s*(\d+)\s*MW\s*(\d+)\s*MW/i
       );
 
 
-    if (mainPower) {
+    if (
+      mainPower
+    ) {
 
       blocks = [
+
         mainPower[1],
         mainPower[2],
         mainPower[3],
         mainPower[4]
+
       ];
 
     } else {
 
-      /*
-        Tartalék parser.
-      */
-
-      const values = [];
+      const values =
+        [];
 
 
       for (
@@ -468,21 +921,26 @@ async function getCurrentData() {
           );
 
 
-        const match =
-          text.match(re);
+        const m =
+          text.match(
+            re
+          );
 
 
-        if (match) {
+        if (
+          m
+        ) {
 
           values.push(
-            match[1]
+            m[1]
           );
         }
       }
 
 
       if (
-        values.length === 4
+        values.length ===
+        4
       ) {
 
         blocks =
@@ -503,8 +961,11 @@ async function getCurrentData() {
     ) {
 
       oahStatus =
-        oahStatus === "OK"
+        oahStatus ===
+        "OK"
+
           ? "IDŐHIBA"
+
           : oahStatus;
     }
 
@@ -524,266 +985,40 @@ async function getCurrentData() {
 
 
   // ==========================================================
-  // VÍZÜGY – PAKS
+  // 4 VÍZÜGY FORRÁS
   // ==========================================================
 
-  try {
+  const [
+    river,
+    hvcs,
+    thresholdUp,
+    thresholdDown
+  ] =
+    await Promise.all(
+      [
 
-    const response =
-      await fetch(
-        VIZ_URL,
-        {
-          headers: {
+        fetchVizStation(
+          VIZ_URL,
+          true
+        ),
 
-            "User-Agent":
-              "Mozilla/5.0 (compatible; PaksMonitor/6.0)"
-          },
+        fetchVizStation(
+          HVCS_URL,
+          false
+        ),
 
-          cf: {
+        fetchVizStation(
+          THRESHOLD_UP_URL,
+          false
+        ),
 
-            cacheTtl:
-              60,
-
-            cacheEverything:
-              false
-          }
-        }
-      );
-
-
-    if (
-      !response.ok
-    ) {
-
-      throw new Error(
-        "VIZ HTTP " +
-        response.status
-      );
-    }
-
-
-    const text =
-      clean(
-        await response.text()
-      );
-
-
-    /*
-      Időpont
-      vízállás
-      vízhozam
-      temp1
-      temp2
-    */
-
-    const rowRegex =
-      /(20\d{2}\.\s*\d{2}\.\s*\d{2}\.?\s*\d{2}:\d{2})\s+(-?\d+)\s+(-|\d+(?:[.,]\d+)?)\s+(-|\d+(?:[.,]\d+)?)\s+(-|\d+(?:[.,]\d+)?)/g;
-
-
-    let latestRow =
-      null;
-
-    let match;
-
-
-    while (
-      (
-        match =
-          rowRegex.exec(
-            text
-          )
-      ) !== null
-    ) {
-
-      const timestamp =
-        parseHuTimestamp(
-          match[1]
-        );
-
-
-      if (
-        !Number.isFinite(
-          timestamp
+        fetchVizStation(
+          THRESHOLD_DOWN_URL,
+          false
         )
-      ) {
 
-        continue;
-      }
-
-
-      if (
-        !latestRow ||
-        timestamp >
-        latestRow.timestamp
-      ) {
-
-        latestRow = {
-
-          timestamp,
-
-          time:
-            match[1],
-
-          water:
-            match[2],
-
-          flow:
-            match[3],
-
-          temp1:
-            match[4],
-
-          temp2:
-            match[5]
-        };
-      }
-    }
-
-
-    if (
-      !latestRow
-    ) {
-
-      riverStatus =
-        "ADATHIBA";
-
-    } else {
-
-      riverTime =
-        latestRow.time;
-
-
-      riverTimestamp =
-        latestRow.timestamp;
-
-
-      // ------------------------------------------------------
-      // VÍZÁLLÁS
-      // ------------------------------------------------------
-
-      const w =
-        Number(
-          latestRow.water
-        );
-
-
-      if (
-        Number.isFinite(w) &&
-        w > -1000 &&
-        w < 1000
-      ) {
-
-        water =
-          w;
-      }
-
-
-      // ------------------------------------------------------
-      // VÍZHOZAM
-      // ------------------------------------------------------
-
-      if (
-        latestRow.flow !==
-        "-"
-      ) {
-
-        const f =
-          Number(
-            latestRow.flow
-              .replace(
-                ",",
-                "."
-              )
-          );
-
-
-        if (
-          Number.isFinite(f) &&
-          f >= 0 &&
-          f <= 20000
-        ) {
-
-          flow =
-            f;
-        }
-      }
-
-
-      // ------------------------------------------------------
-      // DUNA VÍZHŐ
-      // ------------------------------------------------------
-
-      const candidates = [
-
-        latestRow.temp1,
-
-        latestRow.temp2
-      ];
-
-
-      for (
-        const raw of
-        candidates
-      ) {
-
-        if (
-          !raw ||
-          raw === "-"
-        ) {
-
-          continue;
-        }
-
-
-        const value =
-          Number(
-            raw.replace(
-              ",",
-              "."
-            )
-          );
-
-
-        if (
-          Number.isFinite(
-            value
-          ) &&
-          value >= 0 &&
-          value <= 40
-        ) {
-
-          temp =
-            value;
-
-          break;
-        }
-      }
-
-
-      if (
-        !Number.isFinite(
-          water
-        )
-      ) {
-
-        riverStatus =
-          "ADATHIBA";
-      }
-    }
-
-
-  } catch (error) {
-
-    riverStatus =
-      "KAPCSOLATI HIBA";
-
-
-    console.log(
-      "VIZ ERROR:",
-      error?.message ||
-      String(error)
+      ]
     );
-  }
 
 
   const validBlocks =
@@ -797,6 +1032,7 @@ async function getCurrentData() {
 
   const total =
     validBlocks
+
       ? blocks.reduce(
           (
             sum,
@@ -806,6 +1042,65 @@ async function getCurrentData() {
             Number(value),
           0
         )
+
+      : null;
+
+
+  const uplift =
+    Number.isFinite(
+      thresholdUp.value
+    ) &&
+    Number.isFinite(
+      thresholdDown.value
+    )
+
+      ? thresholdUp.value -
+        thresholdDown.value
+
+      : null;
+
+
+  const riverMbf =
+    cmToMbf(
+      river.value,
+      PAKS_ZERO_MBF
+    );
+
+
+  const hvcsMbf =
+    cmToMbf(
+      hvcs.value,
+      LOCAL_ZERO_MBF
+    );
+
+
+  const thresholdUpMbf =
+    cmToMbf(
+      thresholdUp.value,
+      LOCAL_ZERO_MBF
+    );
+
+
+  const thresholdDownMbf =
+    cmToMbf(
+      thresholdDown.value,
+      LOCAL_ZERO_MBF
+    );
+
+
+  const pumpReserveCm =
+    Number.isFinite(
+      hvcsMbf
+    )
+
+      ? Math.round(
+          (
+            hvcsMbf -
+            PUMP_MIN_MBF
+          ) *
+          100
+        )
+
       : null;
 
 
@@ -815,23 +1110,95 @@ async function getCurrentData() {
 
     total,
 
-    water,
 
-    flow,
+    water:
+      river.value,
 
-    temp,
+    flow:
+      river.flow,
+
+    temp:
+      river.temp,
+
+    riverTime:
+      river.time,
+
+    riverTimestamp:
+      river.timestamp,
+
+    riverStatus:
+      river.status,
+
+    riverPrevious:
+      river.previousValue,
+
+    riverMbf,
+
+
+    hvcs:
+      hvcs.value,
+
+    hvcsTime:
+      hvcs.time,
+
+    hvcsTimestamp:
+      hvcs.timestamp,
+
+    hvcsStatus:
+      hvcs.status,
+
+    hvcsPrevious:
+      hvcs.previousValue,
+
+    hvcsMbf,
+
+
+    thresholdUp:
+      thresholdUp.value,
+
+    thresholdUpTime:
+      thresholdUp.time,
+
+    thresholdUpTimestamp:
+      thresholdUp.timestamp,
+
+    thresholdUpStatus:
+      thresholdUp.status,
+
+    thresholdUpPrevious:
+      thresholdUp.previousValue,
+
+    thresholdUpMbf,
+
+
+    thresholdDown:
+      thresholdDown.value,
+
+    thresholdDownTime:
+      thresholdDown.time,
+
+    thresholdDownTimestamp:
+      thresholdDown.timestamp,
+
+    thresholdDownStatus:
+      thresholdDown.status,
+
+    thresholdDownPrevious:
+      thresholdDown.previousValue,
+
+    thresholdDownMbf,
+
+
+    uplift,
+
+    pumpReserveCm,
+
 
     oahTime,
 
     oahTimestamp,
 
-    riverTime,
-
-    riverTimestamp,
-
-    oahStatus,
-
-    riverStatus
+    oahStatus
   };
 }
 
@@ -839,6 +1206,78 @@ async function getCurrentData() {
 // ============================================================
 // D1 MENTÉS
 // ============================================================
+
+async function upsertField(
+  env,
+  ts,
+  field,
+  value
+) {
+
+  if (
+    !Number.isFinite(
+      ts
+    ) ||
+    !Number.isFinite(
+      value
+    )
+  ) {
+
+    return;
+  }
+
+
+  const allowed =
+    new Set(
+      [
+        "power",
+        "water",
+        "flow",
+        "temp",
+        "hvcs",
+        "threshold_up",
+        "threshold_down"
+      ]
+    );
+
+
+  if (
+    !allowed.has(
+      field
+    )
+  ) {
+
+    throw new Error(
+      "Invalid field"
+    );
+  }
+
+
+  await env.DB
+    .prepare(
+      `INSERT INTO measurements
+       (
+         ts,
+         ${field}
+       )
+
+       VALUES (
+         ?,
+         ?
+       )
+
+       ON CONFLICT(ts)
+       DO UPDATE SET
+         ${field} =
+           excluded.${field}`
+    )
+    .bind(
+      ts,
+      value
+    )
+    .run();
+}
+
 
 async function saveMeasurement(
   env,
@@ -852,123 +1291,61 @@ async function saveMeasurement(
     );
 
 
-    // ========================================================
-    // PAKS
-    // ========================================================
-
-    if (
-      Number.isFinite(
-        data.total
-      ) &&
-      Number.isFinite(
-        data.oahTimestamp
-      )
-    ) {
-
-      await env.DB
-        .prepare(
-          `INSERT INTO measurements
-           (
-             ts,
-             power,
-             water,
-             flow,
-             temp
-           )
-
-           VALUES (
-             ?,
-             ?,
-             NULL,
-             NULL,
-             NULL
-           )
-
-           ON CONFLICT(ts)
-           DO UPDATE SET
-             power =
-               excluded.power`
-        )
-        .bind(
-          data.oahTimestamp,
-          data.total
-        )
-        .run();
-    }
+    await upsertField(
+      env,
+      data.oahTimestamp,
+      "power",
+      data.total
+    );
 
 
-    // ========================================================
-    // DUNA
-    //
-    // CSAK A VÍZÜGY SAJÁT KÖZZÉTÉTELI IDŐPONTJÁT MENTJÜK.
-    //
-    // NEM A WORKER 5 PERCES FUTÁSI IDŐPONTJÁT.
-    // ========================================================
-
-    if (
-      Number.isFinite(
-        data.water
-      ) &&
-      Number.isFinite(
-        data.riverTimestamp
-      )
-    ) {
-
-      await env.DB
-        .prepare(
-          `INSERT INTO measurements
-           (
-             ts,
-             power,
-             water,
-             flow,
-             temp
-           )
-
-           VALUES (
-             ?,
-             NULL,
-             ?,
-             ?,
-             ?
-           )
-
-           ON CONFLICT(ts)
-           DO UPDATE SET
-             water =
-               excluded.water,
-
-             flow =
-               excluded.flow,
-
-             temp =
-               excluded.temp`
-        )
-        .bind(
-
-          data.riverTimestamp,
-
-          data.water,
-
-          Number.isFinite(
-            data.flow
-          )
-            ? data.flow
-            : null,
-
-          Number.isFinite(
-            data.temp
-          )
-            ? data.temp
-            : null
-        )
-        .run();
-    }
+    await upsertField(
+      env,
+      data.riverTimestamp,
+      "water",
+      data.water
+    );
 
 
-    // ========================================================
-    // 11 NAP ADATTARTÁS
-    // ========================================================
+    await upsertField(
+      env,
+      data.riverTimestamp,
+      "flow",
+      data.flow
+    );
+
+
+    await upsertField(
+      env,
+      data.riverTimestamp,
+      "temp",
+      data.temp
+    );
+
+
+    await upsertField(
+      env,
+      data.hvcsTimestamp,
+      "hvcs",
+      data.hvcs
+    );
+
+
+    await upsertField(
+      env,
+      data.thresholdUpTimestamp,
+      "threshold_up",
+      data.thresholdUp
+    );
+
+
+    await upsertField(
+      env,
+      data.thresholdDownTimestamp,
+      "threshold_down",
+      data.thresholdDown
+    );
+
 
     const cutoff =
       Date.now() -
@@ -1008,10 +1385,6 @@ async function saveMeasurement(
 export default {
 
 
-  // ==========================================================
-  // CRON
-  // ==========================================================
-
   async scheduled(
     controller,
     env,
@@ -1030,10 +1403,6 @@ export default {
     );
   },
 
-
-  // ==========================================================
-  // HTTP
-  // ==========================================================
 
   async fetch(
     request,
@@ -1073,7 +1442,7 @@ export default {
 
 
     // ========================================================
-    // DUNA HISTORY RESET
+    // RESET
     // ========================================================
 
     if (
@@ -1089,7 +1458,7 @@ export default {
 
 
         return new Response(
-          `DUNA HISTORY CLEARED ✓
+          `DUNA + HVCS HISTORY CLEARED ✓
 ${VERSION}`,
           {
             headers: {
@@ -1237,7 +1606,10 @@ ${VERSION}`,
                  power,
                  water,
                  flow,
-                 temp
+                 temp,
+                 hvcs,
+                 threshold_up,
+                 threshold_down
 
                FROM measurements
 
@@ -1330,7 +1702,7 @@ ${VERSION}`,
     if (
       ctx &&
       typeof ctx.waitUntil ===
-        "function"
+      "function"
     ) {
 
       ctx.waitUntil(
@@ -1348,19 +1720,55 @@ ${VERSION}`,
 
       total,
 
+
       water,
 
       flow,
 
       temp,
 
-      oahTime,
-
       riverTime,
 
-      oahStatus,
+      riverPrevious,
 
-      riverStatus
+      riverMbf,
+
+
+      hvcs,
+
+      hvcsTime,
+
+      hvcsPrevious,
+
+      hvcsMbf,
+
+
+      thresholdUp,
+
+      thresholdUpTime,
+
+      thresholdUpPrevious,
+
+      thresholdUpMbf,
+
+
+      thresholdDown,
+
+      thresholdDownTime,
+
+      thresholdDownPrevious,
+
+      thresholdDownMbf,
+
+
+      uplift,
+
+      pumpReserveCm,
+
+
+      oahTime,
+
+      oahStatus
 
     } = data;
 
@@ -1413,7 +1821,8 @@ ${VERSION}`,
       Number.isFinite(
         water
       )
-        ? water + 134
+        ? water +
+          134
         : null;
 
 
@@ -1421,12 +1830,41 @@ ${VERSION}`,
       Number.isFinite(
         water
       )
-        ? water + 144
+        ? water +
+          144
         : null;
 
 
+    const riverDir =
+      direction(
+        water,
+        riverPrevious
+      );
+
+
+    const hvcsDir =
+      direction(
+        hvcs,
+        hvcsPrevious
+      );
+
+
+    const upDir =
+      direction(
+        thresholdUp,
+        thresholdUpPrevious
+      );
+
+
+    const downDir =
+      direction(
+        thresholdDown,
+        thresholdDownPrevious
+      );
+
+
     // ========================================================
-    // VÍZSZINT STÁTUSZ
+    // STÁTUSZ
     // ========================================================
 
     let riverClass =
@@ -1444,7 +1882,8 @@ ${VERSION}`,
     ) {
 
       if (
-        water <= -144
+        water <=
+        -144
       ) {
 
         riverClass =
@@ -1456,7 +1895,8 @@ ${VERSION}`,
 
 
       } else if (
-        water <= -134
+        water <=
+        -134
       ) {
 
         riverClass =
@@ -1468,7 +1908,8 @@ ${VERSION}`,
 
 
       } else if (
-        water <= -129
+        water <=
+        -129
       ) {
 
         riverClass =
@@ -1493,7 +1934,10 @@ ${VERSION}`,
 
       markerPct =
         (
-          (-110 - water) /
+          (
+            -110 -
+            water
+          ) /
           40
         ) *
         100;
@@ -1546,53 +1990,6 @@ ${VERSION}`,
 <title>
   ⚛️ PAKS AKTUÁLIS ADATOK
 </title>
-
-
-<meta
-  property="og:type"
-  content="website"
->
-
-<meta
-  property="og:title"
-  content="⚛️ PAKS AKTUÁLIS ADATOK"
->
-
-<meta
-  property="og:description"
-  content="Paksi Atomerőmű • Duna vízállás • vízhozam • vízhőmérséklet • kilépő vízhő"
->
-
-<meta
-  property="og:url"
-  content="${PUBLIC_URL}/"
->
-
-<meta
-  property="og:image"
-  content="${PUBLIC_URL}/facebook-image"
->
-
-<meta
-  property="og:image:secure_url"
-  content="${PUBLIC_URL}/facebook-image"
->
-
-<meta
-  property="og:image:type"
-  content="image/png"
->
-
-<meta
-  name="twitter:card"
-  content="summary_large_image"
->
-
-<meta
-  name="twitter:image"
-  content="${PUBLIC_URL}/facebook-image"
->
-
 
 <style>
 
@@ -2138,12 +2535,6 @@ canvas{
 }
 
 
-/*
-  VÍZHOZAM
-  DUNA VÍZHŐ
-  KILÉPŐ VÍZ HŐ
-*/
-
 .metrics{
 
   display:
@@ -2406,6 +2797,878 @@ canvas{
 
   font-size:
     7px;
+}
+
+
+/* ============================================================
+   ÚJ ALSÓ ÉLŐ SÉMA
+============================================================ */
+
+.hydroCard{
+
+  padding:
+    8px;
+}
+
+
+.hydroHead{
+
+  display:
+    flex;
+
+  align-items:
+    center;
+
+  justify-content:
+    space-between;
+
+  margin-bottom:
+    6px;
+}
+
+
+.hydroTitle{
+
+  font-size:
+    10px;
+
+  font-weight:
+    900;
+
+  color:
+    #c4d0dd;
+
+  letter-spacing:
+    .5px;
+}
+
+
+.hydroSub{
+
+  font-size:
+    6.5px;
+
+  color:
+    #718296;
+}
+
+
+.hydroStage{
+
+  position:
+    relative;
+
+  height:
+    245px;
+
+  overflow:
+    hidden;
+
+  border-radius:
+    13px;
+
+  background:
+    linear-gradient(
+      #142b42 0 47%,
+      #1d78b8 47% 75%,
+      #3b2f25 75% 100%
+    );
+
+  border:
+    1px solid #173750;
+}
+
+
+.skyGlow{
+
+  position:
+    absolute;
+
+  inset:
+    0;
+
+  background:
+    linear-gradient(
+      180deg,
+      rgba(
+        70,
+        140,
+        200,
+        .08
+      ),
+      transparent 42%
+    );
+}
+
+
+.waterLine{
+
+  position:
+    absolute;
+
+  left:
+    0;
+
+  right:
+    0;
+
+  top:
+    47%;
+
+  height:
+    2px;
+
+  background:
+    #58bcff;
+
+  box-shadow:
+    0 0 6px
+    rgba(
+      73,
+      169,
+      255,
+      .7
+    );
+}
+
+
+.waterBreak{
+
+  position:
+    absolute;
+
+  left:
+    22%;
+
+  top:
+    47%;
+
+  width:
+    18%;
+
+  height:
+    16px;
+
+  border-top:
+    3px solid #58bcff;
+
+  border-right:
+    3px solid #58bcff;
+
+  transform:
+    translateY(
+      -13px
+    )
+    skewY(
+      -8deg
+    );
+}
+
+
+.breakLabel{
+
+  position:
+    absolute;
+
+  left:
+    25%;
+
+  top:
+    39%;
+
+  font-size:
+    6px;
+
+  color:
+    #a8d9ff;
+
+  font-weight:
+    900;
+
+  background:
+    rgba(
+      4,
+      12,
+      20,
+      .78
+    );
+
+  padding:
+    2px 5px;
+
+  border-radius:
+    999px;
+}
+
+
+.threshold{
+
+  position:
+    absolute;
+
+  left:
+    39%;
+
+  bottom:
+    25%;
+
+  width:
+    14%;
+
+  height:
+    74px;
+
+  background:
+    radial-gradient(
+      circle at 20% 20%,
+      #8b8d90 0 8px,
+      transparent 9px
+    ),
+    radial-gradient(
+      circle at 55% 35%,
+      #6f7175 0 10px,
+      transparent 11px
+    ),
+    radial-gradient(
+      circle at 80% 70%,
+      #919397 0 8px,
+      transparent 9px
+    ),
+    radial-gradient(
+      circle at 35% 75%,
+      #696b6e 0 9px,
+      transparent 10px
+    ),
+    #45484c;
+
+  border-radius:
+    42% 42% 5px 5px;
+
+  box-shadow:
+    0 0 0 2px
+    #2a2d31 inset;
+}
+
+
+.threshold:after{
+
+  content:
+    "";
+
+  position:
+    absolute;
+
+  left:
+    -8px;
+
+  right:
+    -8px;
+
+  bottom:
+    -5px;
+
+  height:
+    14px;
+
+  background:
+    #383b3f;
+
+  border-radius:
+    50%;
+}
+
+
+.rack{
+
+  position:
+    absolute;
+
+  left:
+    67%;
+
+  bottom:
+    25%;
+
+  width:
+    26px;
+
+  height:
+    75px;
+
+  border:
+    2px solid #7f8b96;
+
+  background:
+    repeating-linear-gradient(
+      90deg,
+      #263847 0 3px,
+      #9aa6b1 3px 5px
+    );
+}
+
+
+.pump{
+
+  position:
+    absolute;
+
+  bottom:
+    24%;
+
+  width:
+    32px;
+
+  height:
+    115px;
+
+  border-left:
+    8px solid #7d8790;
+
+  border-radius:
+    7px;
+}
+
+
+.pump:before{
+
+  content:
+    "";
+
+  position:
+    absolute;
+
+  left:
+    -14px;
+
+  top:
+    -8px;
+
+  width:
+    24px;
+
+  height:
+    18px;
+
+  border-radius:
+    7px;
+
+  background:
+    #89939b;
+}
+
+
+.pump:after{
+
+  content:
+    "";
+
+  position:
+    absolute;
+
+  left:
+    -14px;
+
+  bottom:
+    -9px;
+
+  width:
+    24px;
+
+  height:
+    24px;
+
+  border-radius:
+    50%;
+
+  background:
+    #66717b;
+
+  border:
+    3px solid #313940;
+}
+
+
+.p1{
+
+  left:
+    77%;
+}
+
+
+.p2{
+
+  left:
+    84%;
+}
+
+
+.plant{
+
+  position:
+    absolute;
+
+  right:
+    2%;
+
+  bottom:
+    25%;
+
+  width:
+    74px;
+
+  height:
+    94px;
+
+  border-radius:
+    10px 10px 3px 3px;
+
+  background:
+    linear-gradient(
+      145deg,
+      #68717a,
+      #343b42
+    );
+
+  border:
+    1px solid #8a939b;
+
+  box-shadow:
+    0 0 15px
+    rgba(
+      90,
+      220,
+      90,
+      .08
+    );
+}
+
+
+.plant:before{
+
+  content:
+    "";
+
+  position:
+    absolute;
+
+  left:
+    14px;
+
+  top:
+    -36px;
+
+  width:
+    46px;
+
+  height:
+    42px;
+
+  border-radius:
+    50% 50% 0 0;
+
+  background:
+    #59626b;
+
+  border:
+    1px solid #8b949d;
+}
+
+
+.plantText{
+
+  position:
+    absolute;
+
+  left:
+    7px;
+
+  right:
+    7px;
+
+  top:
+    31px;
+
+  text-align:
+    center;
+
+  font-size:
+    8px;
+
+  font-weight:
+    900;
+}
+
+
+.mwNow{
+
+  position:
+    absolute;
+
+  left:
+    7px;
+
+  right:
+    7px;
+
+  bottom:
+    9px;
+
+  text-align:
+    center;
+
+  color:
+    var(--green);
+
+  font-size:
+    15px;
+
+  font-weight:
+    950;
+}
+
+
+.flowArrow{
+
+  position:
+    absolute;
+
+  color:
+    #65bdff;
+
+  font-size:
+    19px;
+
+  font-weight:
+    950;
+}
+
+
+.a1{
+
+  left:
+    15%;
+
+  top:
+    58%;
+}
+
+
+.a2{
+
+  left:
+    56%;
+
+  top:
+    58%;
+}
+
+
+.a3{
+
+  left:
+    72%;
+
+  top:
+    60%;
+}
+
+
+.reading{
+
+  position:
+    absolute;
+
+  z-index:
+    5;
+
+  min-width:
+    93px;
+
+  padding:
+    6px 7px;
+
+  border-radius:
+    8px;
+
+  background:
+    rgba(
+      4,
+      12,
+      20,
+      .88
+    );
+
+  border:
+    1px solid #1b3b57;
+
+  box-shadow:
+    0 4px 18px
+    rgba(
+      0,
+      0,
+      0,
+      .24
+    );
+}
+
+
+.reading .lab{
+
+  font-size:
+    6px;
+
+  color:
+    #93a2b4;
+
+  font-weight:
+    800;
+}
+
+
+.reading .val{
+
+  font-size:
+    15px;
+
+  font-weight:
+    950;
+
+  margin-top:
+    1px;
+}
+
+
+.reading .sub{
+
+  font-size:
+    7px;
+
+  color:
+    #d6dce3;
+
+  margin-top:
+    2px;
+}
+
+
+.reading .tm{
+
+  font-size:
+    6px;
+
+  color:
+    #77879a;
+
+  margin-top:
+    2px;
+}
+
+
+.rRiver{
+
+  left:
+    3%;
+
+  top:
+    9%;
+}
+
+
+.rUp{
+
+  left:
+    24%;
+
+  top:
+    4%;
+}
+
+
+.rLift{
+
+  left:
+    43%;
+
+  top:
+    4%;
+
+  border-color:
+    #2f6e36;
+}
+
+
+.rDown{
+
+  left:
+    54%;
+
+  top:
+    8%;
+}
+
+
+.rHvcs{
+
+  left:
+    68%;
+
+  top:
+    5%;
+}
+
+
+.blueVal{
+
+  color:
+    var(--blue);
+}
+
+
+.greenVal{
+
+  color:
+    var(--green);
+}
+
+
+.dir.up{
+
+  color:
+    var(--green);
+}
+
+
+.dir.down{
+
+  color:
+    var(--orange);
+}
+
+
+.dir.flat{
+
+  color:
+    #9ba8b7;
+}
+
+
+.redLine{
+
+  position:
+    absolute;
+
+  left:
+    2%;
+
+  right:
+    2%;
+
+  top:
+    68%;
+
+  border-top:
+    2px dashed
+    var(--red);
+
+  opacity:
+    .88;
+}
+
+
+.redLabel{
+
+  position:
+    absolute;
+
+  left:
+    4%;
+
+  top:
+    69%;
+
+  color:
+    var(--red);
+
+  font-size:
+    7px;
+
+  font-weight:
+    950;
+}
+
+
+.pumpPanel{
+
+  position:
+    absolute;
+
+  right:
+    1.5%;
+
+  bottom:
+    2%;
+
+  z-index:
+    6;
+
+  width:
+    150px;
+
+  padding:
+    7px;
+
+  border-radius:
+    9px;
+
+  background:
+    rgba(
+      4,
+      16,
+      10,
+      .93
+    );
+
+  border:
+    1px solid #2f6e36;
+}
+
+
+.pumpPanel .pv{
+
+  font-size:
+    18px;
+
+  font-weight:
+    950;
+
+  color:
+    var(--green);
+}
+
+
+.pumpPanel .mbf{
+
+  font-size:
+    11px;
+
+  font-weight:
+    900;
+
+  color:
+    #5bb5ff;
+}
+
+
+.pumpPanel .tiny{
+
+  font-size:
+    6px;
+
+  color:
+    #b8c3cd;
+
+  margin-top:
+    2px;
 }
 
 
@@ -2696,6 +3959,13 @@ canvas{
     font-size:
       70px;
   }
+
+
+  .hydroStage{
+
+    height:
+      320px;
+  }
 }
 
 </style>
@@ -2737,9 +4007,7 @@ canvas{
   <div class="cards">
 
 
-    <!-- ===================================================
-         PAKS
-    ==================================================== -->
+    <!-- PAKS -->
 
 
     <div class="card">
@@ -2886,9 +4154,7 @@ canvas{
 
 
 
-    <!-- ===================================================
-         DUNA
-    ==================================================== -->
+    <!-- DUNA -->
 
 
     <div class="card">
@@ -2979,12 +4245,6 @@ canvas{
         </div>
 
 
-
-        <!-- =================================================
-             3 ADAT EGY SORBAN
-        ================================================== -->
-
-
         <div class="metrics">
 
 
@@ -3026,7 +4286,7 @@ canvas{
 
 
             <div class="metricName">
-              KILÉPŐ VÍZ HŐ
+              KILÉPŐ VÍZ HŐ • HŐCSÓVA ELEJÉN
             </div>
 
 
@@ -3043,12 +4303,6 @@ canvas{
         </div>
 
 
-
-        <!-- =================================================
-             HŐMÉRSÉKLETI INFORMÁCIÓ
-        ================================================== -->
-
-
         <div class="tempRule">
 
           MVM ${OUTLET_TEMP_DATE}
@@ -3058,12 +4312,6 @@ canvas{
           • +0,1 °C → −80 MW
 
         </div>
-
-
-
-        <!-- =================================================
-             VÍZSZINT SKÁLA
-        ================================================== -->
 
 
         <div class="gauge">
@@ -3097,7 +4345,6 @@ canvas{
 
 
         </div>
-
 
 
         <div class="distances">
@@ -3160,14 +4407,11 @@ canvas{
       </div>
 
 
-
       <div class="source">
 
         VÍZÜGY •
 
-        ${shortTime(riverTime)} •
-
-        ${riverStatus}
+        ${shortTime(riverTime)}
 
         &nbsp; • &nbsp;
 
@@ -3184,30 +4428,461 @@ canvas{
 
 
   <!-- =====================================================
-       ALSÓ RÉSZ
+       ÚJ ALSÓ ÉLŐ SÉMA
   ====================================================== -->
+
+
+  <div class="card hydroCard">
+
+
+    <div class="hydroHead">
+
+
+      <div class="hydroTitle">
+        DUNA → FENÉKKÜSZÖB → HIDEGVÍZ-CSATORNA → SZIVATTYÚK → ERŐMŰ
+      </div>
+
+
+      <div class="hydroSub">
+        VÍZÜGY ÉLŐ MÉRÉSEK
+      </div>
+
+
+    </div>
+
+
+    <div class="hydroStage">
+
+
+      <div class="skyGlow"></div>
+
+
+      <div class="waterLine"></div>
+
+
+      <div class="waterBreak"></div>
+
+
+      <div class="breakLabel">
+        VÍZFELSZÍN-TÖRÉS / DUZZASZTÁS
+      </div>
+
+
+      <div class="threshold"></div>
+
+
+      <div class="rack"></div>
+
+
+      <div class="pump p1"></div>
+
+
+      <div class="pump p2"></div>
+
+
+      <div class="plant">
+
+
+        <div class="plantText">
+          PAKSI<br>
+          ATOMERŐMŰ
+        </div>
+
+
+        <div class="mwNow">
+
+          ${
+            Number.isFinite(
+              total
+            )
+              ? total +
+                " MW"
+              : "— MW"
+          }
+
+        </div>
+
+
+      </div>
+
+
+      <div class="flowArrow a1">
+        →
+      </div>
+
+
+      <div class="flowArrow a2">
+        →
+      </div>
+
+
+      <div class="flowArrow a3">
+        ↗
+      </div>
+
+
+      <div class="reading rRiver">
+
+
+        <div class="lab">
+          DUNA • PAKS FŐÁG
+        </div>
+
+
+        <div class="val blueVal">
+
+          ${
+            Number.isFinite(
+              water
+            )
+              ? water +
+                " cm"
+              : "—"
+          }
+
+          <span
+            class="dir ${riverDir.cls}"
+          >
+            ${riverDir.symbol}
+          </span>
+
+        </div>
+
+
+        <div class="sub">
+
+          ${
+            Number.isFinite(
+              riverMbf
+            )
+              ? fmt2(
+                  riverMbf
+                ) +
+                " mBf"
+              : "—"
+          }
+
+        </div>
+
+
+        <div class="tm">
+          MÉRÉS:
+          ${shortTime(riverTime)}
+        </div>
+
+
+      </div>
+
+
+
+      <div class="reading rUp">
+
+
+        <div class="lab">
+          FENÉKKÜSZÖB • FELVÍZ
+        </div>
+
+
+        <div class="val greenVal">
+
+          ${
+            Number.isFinite(
+              thresholdUp
+            )
+              ? thresholdUp +
+                " cm"
+              : "—"
+          }
+
+          <span
+            class="dir ${upDir.cls}"
+          >
+            ${upDir.symbol}
+          </span>
+
+        </div>
+
+
+        <div class="sub">
+
+          ${
+            Number.isFinite(
+              thresholdUpMbf
+            )
+              ? fmt2(
+                  thresholdUpMbf
+                ) +
+                " mBf"
+              : "—"
+          }
+
+        </div>
+
+
+        <div class="tm">
+          MÉRÉS:
+          ${shortTime(
+            thresholdUpTime
+          )}
+        </div>
+
+
+      </div>
+
+
+
+      <div class="reading rLift">
+
+
+        <div class="lab">
+          DUZZASZTÁS EREDMÉNYE
+        </div>
+
+
+        <div class="val greenVal">
+
+          ${
+            Number.isFinite(
+              uplift
+            )
+              ? "+" +
+                uplift +
+                " cm"
+              : "—"
+          }
+
+        </div>
+
+
+        <div class="sub">
+          FELVÍZ − ALVÍZ
+        </div>
+
+
+        <div class="tm">
+          ÉLŐ KÜLÖNBSÉG
+        </div>
+
+
+      </div>
+
+
+
+      <div class="reading rDown">
+
+
+        <div class="lab">
+          FENÉKKÜSZÖB • ALVÍZ
+        </div>
+
+
+        <div class="val blueVal">
+
+          ${
+            Number.isFinite(
+              thresholdDown
+            )
+              ? thresholdDown +
+                " cm"
+              : "—"
+          }
+
+          <span
+            class="dir ${downDir.cls}"
+          >
+            ${downDir.symbol}
+          </span>
+
+        </div>
+
+
+        <div class="sub">
+
+          ${
+            Number.isFinite(
+              thresholdDownMbf
+            )
+              ? fmt2(
+                  thresholdDownMbf
+                ) +
+                " mBf"
+              : "—"
+          }
+
+        </div>
+
+
+        <div class="tm">
+          MÉRÉS:
+          ${shortTime(
+            thresholdDownTime
+          )}
+        </div>
+
+
+      </div>
+
+
+
+      <div class="reading rHvcs">
+
+
+        <div class="lab">
+          HIDEGVÍZ-CSATORNA • ÖBLÖZET
+        </div>
+
+
+        <div class="val blueVal">
+
+          ${
+            Number.isFinite(
+              hvcs
+            )
+              ? hvcs +
+                " cm"
+              : "—"
+          }
+
+          <span
+            class="dir ${hvcsDir.cls}"
+          >
+            ${hvcsDir.symbol}
+          </span>
+
+        </div>
+
+
+        <div class="sub">
+
+          ${
+            Number.isFinite(
+              hvcsMbf
+            )
+              ? fmt2(
+                  hvcsMbf
+                ) +
+                " mBf"
+              : "—"
+          }
+
+        </div>
+
+
+        <div class="tm">
+          MÉRÉS:
+          ${shortTime(
+            hvcsTime
+          )}
+        </div>
+
+
+      </div>
+
+
+
+      <div class="redLine"></div>
+
+
+      <div class="redLabel">
+
+        −144 cm • LEÁLLÁSI SZINT
+
+      </div>
+
+
+
+      <div class="pumpPanel">
+
+
+        <div class="tiny">
+          SZIVATTYÚ SZINT • ÖBLÖZET
+        </div>
+
+
+        <div class="mbf">
+
+          ${
+            Number.isFinite(
+              hvcsMbf
+            )
+              ? fmt2(
+                  hvcsMbf
+                ) +
+                " mBf"
+              : "—"
+          }
+
+        </div>
+
+
+        <div class="pv">
+
+          ${
+            Number.isFinite(
+              pumpReserveCm
+            )
+              ? pumpReserveCm +
+                " cm"
+              : "—"
+          }
+
+        </div>
+
+
+        <div class="tiny">
+
+          TARTALÉK A 83,60 mBf
+          MINIMUM FELETT
+
+        </div>
+
+
+      </div>
+
+
+    </div>
+
+
+    <div class="source">
+
+      VÍZÜGY
+
+      • FŐÁG
+      ${shortTime(riverTime)}
+
+      • FELVÍZ
+      ${shortTime(thresholdUpTime)}
+
+      • ALVÍZ
+      ${shortTime(thresholdDownTime)}
+
+      • HVCS
+      ${shortTime(hvcsTime)}
+
+      • DUZZASZTÁS =
+      FELVÍZ − ALVÍZ
+
+    </div>
+
+
+  </div>
+
 
 
   <div class="bottom">
 
 
     <div class="signature">
-
       IGLÓDI
-
     </div>
-
 
 
     <div class="share">
 
 
       <div class="shareTitle">
-
         🔗 PARANCSIKON / MEGOSZTÁS
-
       </div>
-
 
 
       <div class="shareRow">
@@ -3217,20 +4892,15 @@ canvas{
           class="url"
           href="${PUBLIC_URL}"
         >
-
           ${PUBLIC_URL}
-
         </a>
-
 
 
         <button
           class="copy"
           id="copyButton"
         >
-
           MÁSOLÁS
-
         </button>
 
 
@@ -3243,27 +4913,20 @@ canvas{
   </div>
 
 
-
   <div class="version">
-
     ${VERSION}
-
   </div>
 
 
 </div>
 
 
-
 <div
   id="toast"
   class="toast"
 >
-
   Link másolva
-
 </div>
-
 
 
 <script>
@@ -3316,15 +4979,14 @@ async function getHistory(
 
     if (
       json &&
-      json.ok === true &&
+      json.ok ===
+      true &&
       Array.isArray(
         json.data
       )
     ) {
 
-      return (
-        json.data
-      );
+      return json.data;
     }
 
 
@@ -3340,12 +5002,14 @@ async function loadHistory(
 ) {
 
   if (
-    cache[hours]
+    cache[
+      hours
+    ]
   ) {
 
-    return (
-      cache[hours]
-    );
+    return cache[
+      hours
+    ];
   }
 
 
@@ -3355,7 +5019,9 @@ async function loadHistory(
     );
 
 
-  cache[hours] =
+  cache[
+    hours
+  ] =
     data;
 
 
@@ -3398,11 +5064,16 @@ async function drawChart(
     rows
       .filter(
         row =>
-          row[field] !== null &&
-          row[field] !== undefined
+          row[
+            field
+          ] !== null &&
+          row[
+            field
+          ] !== undefined
       )
       .map(
         row => ({
+
           x:
             Number(
               row.ts
@@ -3410,7 +5081,9 @@ async function drawChart(
 
           y:
             Number(
-              row[field]
+              row[
+                field
+              ]
             )
         })
       )
@@ -3523,10 +5196,6 @@ async function drawChart(
     pad.bottom;
 
 
-  // ==========================================================
-  // RÁCS
-  // ==========================================================
-
   ctx.strokeStyle =
     "rgba(115,145,170,.18)";
 
@@ -3598,10 +5267,6 @@ async function drawChart(
   }
 
 
-  // ==========================================================
-  // Y TARTOMÁNY
-  // ==========================================================
-
   let minY =
     Math.min(
       ...data.map(
@@ -3626,8 +5291,11 @@ async function drawChart(
   ) {
 
     const delta =
-      field === "water"
+      field ===
+      "water"
+
         ? 2
+
         : Math.max(
             1,
             Math.abs(
@@ -3664,10 +5332,6 @@ async function drawChart(
   maxY +=
     margin;
 
-
-  // ==========================================================
-  // X TARTOMÁNY
-  // ==========================================================
 
   const maxX =
     Date.now();
@@ -3712,10 +5376,6 @@ async function drawChart(
       ) *
       chartH;
 
-
-  // ==========================================================
-  // Y FELIRAT
-  // ==========================================================
 
   ctx.fillStyle =
     "#708296";
@@ -3768,10 +5428,6 @@ async function drawChart(
   }
 
 
-  // ==========================================================
-  // X FELIRAT
-  // ==========================================================
-
   ctx.textAlign =
     "center";
 
@@ -3779,7 +5435,9 @@ async function drawChart(
   const divisions =
     hours >=
     240
+
       ? 4
+
       : 3;
 
 
@@ -3806,31 +5464,30 @@ async function drawChart(
 
 
     const label =
-      hours >= 240
+      hours >=
+      240
 
-        ? date
-            .toLocaleDateString(
-              "hu-HU",
-              {
-                month:
-                  "2-digit",
+        ? date.toLocaleDateString(
+            "hu-HU",
+            {
+              month:
+                "2-digit",
 
-                day:
-                  "2-digit"
-              }
-            )
+              day:
+                "2-digit"
+            }
+          )
 
-        : date
-            .toLocaleTimeString(
-              "hu-HU",
-              {
-                hour:
-                  "2-digit",
+        : date.toLocaleTimeString(
+            "hu-HU",
+            {
+              hour:
+                "2-digit",
 
-                minute:
-                  "2-digit"
-              }
-            );
+              minute:
+                "2-digit"
+            }
+          );
 
 
     ctx.fillText(
@@ -3847,7 +5504,9 @@ async function drawChart(
   const lineColor =
     field ===
     "power"
+
       ? "#66df57"
+
       : "#49a9ff";
 
 
@@ -3864,20 +5523,22 @@ async function drawChart(
 
 
   ctx.lineJoin =
-    field === "water"
+    field ===
+    "water"
+
       ? "miter"
+
       : "round";
 
 
   ctx.lineCap =
-    field === "water"
+    field ===
+    "water"
+
       ? "butt"
+
       : "round";
 
-
-  // ==========================================================
-  // 1 MÉRÉSI PONT
-  // ==========================================================
 
   if (
     data.length ===
@@ -3944,15 +5605,6 @@ async function drawChart(
   ctx.beginPath();
 
 
-  // ==========================================================
-  // DUNA – LÉPCSŐS
-  //
-  // NINCS 5 PERCES FŰRÉSZ.
-  //
-  // A VÍZÜGY ADATÁT VÍZSZINTESEN TARTJUK,
-  // ÉS CSAK AZ ÚJ HIVATALOS MÉRÉSI IDŐPONTBAN UGRIK.
-  // ==========================================================
-
   if (
     field ===
     "water"
@@ -3988,7 +5640,8 @@ async function drawChart(
 
     for (
       let i = 1;
-      i < data.length;
+      i <
+      data.length;
       i++
     ) {
 
@@ -4028,11 +5681,6 @@ async function drawChart(
       }
 
 
-      /*
-        Előző vízállás
-        vízszintesen az új mérésig.
-      */
-
       ctx.lineTo(
         currentX,
         sy(
@@ -4040,11 +5688,6 @@ async function drawChart(
         )
       );
 
-
-      /*
-        Új időpontban
-        függőleges ugrás.
-      */
 
       ctx.lineTo(
         currentX,
@@ -4062,11 +5705,6 @@ async function drawChart(
       ];
 
 
-    /*
-      Legutolsó hivatalos
-      vízállás → jelen.
-    */
-
     ctx.lineTo(
       sx(
         maxX
@@ -4079,10 +5717,6 @@ async function drawChart(
 
   } else {
 
-
-    // ========================================================
-    // PAKS TELJESÍTMÉNY
-    // ========================================================
 
     data.forEach(
       (
@@ -4127,10 +5761,6 @@ async function drawChart(
   ctx.stroke();
 
 
-  // ==========================================================
-  // UTOLSÓ PONT
-  // ==========================================================
-
   const last =
     data[
       data.length -
@@ -4145,9 +5775,11 @@ async function drawChart(
 
     field ===
     "water"
+
       ? sx(
           maxX
         )
+
       : sx(
           last.x
         ),
