@@ -20,7 +20,7 @@ const FB_IMAGE_RAW =
   "https://raw.githubusercontent.com/laszloiglodi-beep/Paks-monitor/main/60CF06BF-2068-420D-AC41-224FB3B75358.png";
 
 const VERSION =
-  "PAKS MONITOR V7";
+  "PAKS MONITOR V8";
 
 
 const OUTLET_TEMP =
@@ -400,7 +400,7 @@ async function fetchVizStation(
           headers: {
 
             "User-Agent":
-              "Mozilla/5.0 (compatible; PaksMonitor/7.0)"
+              "Mozilla/5.0 (compatible; PaksMonitor/8.0)"
           },
 
           cf: {
@@ -829,7 +829,7 @@ async function getCurrentData() {
           headers: {
 
             "User-Agent":
-              "Mozilla/5.0 (compatible; PaksMonitor/7.0)"
+              "Mozilla/5.0 (compatible; PaksMonitor/8.0)"
           },
 
           cf: {
@@ -1954,10 +1954,6 @@ ${VERSION}`,
     }
 
 
-    // ========================================================
-    // HTML
-    // ========================================================
-
     const html =
 `<!doctype html>
 
@@ -1988,8 +1984,9 @@ ${VERSION}`,
 >
 
 <title>
-  ⚛️ PAKS AKTUÁLIS ADATOK
+⚛️ PAKS AKTUÁLIS ADATOK
 </title>
+
 
 <style>
 
@@ -2031,6 +2028,7 @@ ${VERSION}`,
 
 
 *{
+
   box-sizing:
     border-box;
 }
@@ -2047,6 +2045,9 @@ body{
 
   min-height:
     100%;
+
+  overflow-x:
+    hidden;
 
   background:
     radial-gradient(
@@ -2091,7 +2092,7 @@ body{
       8px,
       env(safe-area-inset-top)
     )
-    9px
+    8px
     max(
       7px,
       env(safe-area-inset-bottom)
@@ -2121,13 +2122,13 @@ body{
 .logo{
 
   width:
-    40px;
+    38px;
 
   height:
-    40px;
+    38px;
 
   border-radius:
-    12px;
+    11px;
 
   display:
     grid;
@@ -2136,7 +2137,7 @@ body{
     center;
 
   font-size:
-    24px;
+    23px;
 
   background:
     linear-gradient(
@@ -2149,11 +2150,14 @@ body{
 
 .title{
 
+  min-width:
+    0;
+
   font-size:
-    20px;
+    19px;
 
   line-height:
-    .98;
+    1;
 
   font-weight:
     950;
@@ -2175,7 +2179,7 @@ body{
     5px;
 
   padding:
-    5px 8px;
+    5px 7px;
 
   border-radius:
     999px;
@@ -2190,7 +2194,7 @@ body{
     #73e66a;
 
   font-size:
-    9px;
+    8px;
 
   font-weight:
     900;
@@ -2229,7 +2233,7 @@ body{
     1px solid var(--border);
 
   border-radius:
-    17px;
+    16px;
 
   overflow:
     hidden;
@@ -2242,7 +2246,7 @@ body{
 .inner{
 
   padding:
-    10px;
+    9px;
 }
 
 
@@ -2252,10 +2256,10 @@ body{
     #a5b1bf;
 
   font-size:
-    10px;
+    9px;
 
   letter-spacing:
-    .55px;
+    .45px;
 
   font-weight:
     850;
@@ -2284,13 +2288,13 @@ body{
 .big{
 
   font-size:
-    40px;
+    38px;
 
   line-height:
     .95;
 
   letter-spacing:
-    -1.5px;
+    -1.3px;
 
   font-weight:
     950;
@@ -2320,7 +2324,7 @@ body{
     #78879a;
 
   font-size:
-    8px;
+    7px;
 }
 
 
@@ -2330,7 +2334,7 @@ body{
     3px;
 
   font-size:
-    9px;
+    8px;
 
   font-weight:
     900;
@@ -2361,10 +2365,10 @@ body{
 .chartBox{
 
   margin-bottom:
-    7px;
+    6px;
 
   padding:
-    7px 7px 4px;
+    6px 6px 3px;
 
   background:
     #050e18;
@@ -2373,7 +2377,7 @@ body{
     1px solid #132b40;
 
   border-radius:
-    11px;
+    10px;
 }
 
 
@@ -2389,10 +2393,10 @@ body{
     space-between;
 
   gap:
-    6px;
+    5px;
 
   margin-bottom:
-    4px;
+    3px;
 }
 
 
@@ -2402,7 +2406,7 @@ body{
     #8f9eb1;
 
   font-size:
-    7px;
+    6.5px;
 
   font-weight:
     800;
@@ -2415,7 +2419,7 @@ body{
     flex;
 
   gap:
-    3px;
+    2px;
 }
 
 
@@ -2425,7 +2429,7 @@ body{
     0;
 
   padding:
-    3px 6px;
+    3px 5px;
 
   border-radius:
     999px;
@@ -2437,7 +2441,7 @@ body{
     #8394a8;
 
   font-size:
-    7px;
+    6.5px;
 
   font-weight:
     850;
@@ -2463,7 +2467,7 @@ body{
     100%;
 
   height:
-    92px;
+    86px;
 }
 
 
@@ -2525,7 +2529,7 @@ canvas{
     2px;
 
   font-size:
-    17px;
+    16px;
 
   line-height:
     1;
@@ -2543,11 +2547,14 @@ canvas{
   grid-template-columns:
     repeat(
       3,
-      1fr
+      minmax(
+        0,
+        1fr
+      )
     );
 
   gap:
-    5px;
+    4px;
 }
 
 
@@ -2557,10 +2564,10 @@ canvas{
     0;
 
   padding:
-    6px 7px;
+    6px;
 
   border-radius:
-    9px;
+    8px;
 
   background:
     var(--panel2);
@@ -2573,10 +2580,10 @@ canvas{
     #8c9bad;
 
   font-size:
-    6.5px;
+    6px;
 
-  white-space:
-    nowrap;
+  min-height:
+    14px;
 }
 
 
@@ -2586,7 +2593,7 @@ canvas{
     2px;
 
   font-size:
-    14px;
+    13px;
 
   font-weight:
     900;
@@ -2609,7 +2616,7 @@ canvas{
     5px;
 
   padding:
-    5px 7px;
+    5px 6px;
 
   border:
     1px solid #604718;
@@ -2627,7 +2634,7 @@ canvas{
     center;
 
   font-size:
-    7px;
+    6.5px;
 
   font-weight:
     900;
@@ -2640,7 +2647,7 @@ canvas{
     relative;
 
   height:
-    9px;
+    8px;
 
   border-radius:
     999px;
@@ -2676,7 +2683,7 @@ canvas{
     3px;
 
   height:
-    19px;
+    18px;
 
   border-radius:
     2px;
@@ -2704,7 +2711,7 @@ canvas{
     3px;
 
   font-size:
-    7px;
+    6px;
 }
 
 
@@ -2757,7 +2764,7 @@ canvas{
     5px 7px;
 
   border-radius:
-    9px;
+    8px;
 
   background:
     var(--panel2);
@@ -2767,7 +2774,7 @@ canvas{
 .distanceValue{
 
   font-size:
-    13px;
+    12px;
 
   font-weight:
     950;
@@ -2780,14 +2787,14 @@ canvas{
     #78889b;
 
   font-size:
-    6px;
+    5.8px;
 }
 
 
 .source{
 
   padding:
-    5px 10px;
+    5px 9px;
 
   border-top:
     1px solid #172e42;
@@ -2796,18 +2803,18 @@ canvas{
     #718296;
 
   font-size:
-    7px;
+    6.3px;
 }
 
 
 /* ============================================================
-   ÚJ ALSÓ ÉLŐ SÉMA
+   V8 MOBIL HIDRAULIKAI PANEL
 ============================================================ */
 
 .hydroCard{
 
   padding:
-    8px;
+    7px;
 }
 
 
@@ -2822,712 +2829,208 @@ canvas{
   justify-content:
     space-between;
 
-  margin-bottom:
-    6px;
+  gap:
+    8px;
+
+  margin:
+    0 2px 6px;
 }
 
 
 .hydroTitle{
 
+  min-width:
+    0;
+
   font-size:
-    10px;
+    8px;
 
   font-weight:
-    900;
+    950;
 
   color:
-    #c4d0dd;
-
-  letter-spacing:
-    .5px;
+    #d3dde8;
 }
 
 
 .hydroSub{
 
-  font-size:
-    6.5px;
+  flex:
+    0 0 auto;
 
   color:
-    #718296;
-}
-
-
-.hydroStage{
-
-  position:
-    relative;
-
-  height:
-    245px;
-
-  overflow:
-    hidden;
-
-  border-radius:
-    13px;
-
-  background:
-    linear-gradient(
-      #142b42 0 47%,
-      #1d78b8 47% 75%,
-      #3b2f25 75% 100%
-    );
-
-  border:
-    1px solid #173750;
-}
-
-
-.skyGlow{
-
-  position:
-    absolute;
-
-  inset:
-    0;
-
-  background:
-    linear-gradient(
-      180deg,
-      rgba(
-        70,
-        140,
-        200,
-        .08
-      ),
-      transparent 42%
-    );
-}
-
-
-.waterLine{
-
-  position:
-    absolute;
-
-  left:
-    0;
-
-  right:
-    0;
-
-  top:
-    47%;
-
-  height:
-    2px;
-
-  background:
-    #58bcff;
-
-  box-shadow:
-    0 0 6px
-    rgba(
-      73,
-      169,
-      255,
-      .7
-    );
-}
-
-
-.waterBreak{
-
-  position:
-    absolute;
-
-  left:
-    22%;
-
-  top:
-    47%;
-
-  width:
-    18%;
-
-  height:
-    16px;
-
-  border-top:
-    3px solid #58bcff;
-
-  border-right:
-    3px solid #58bcff;
-
-  transform:
-    translateY(
-      -13px
-    )
-    skewY(
-      -8deg
-    );
-}
-
-
-.breakLabel{
-
-  position:
-    absolute;
-
-  left:
-    25%;
-
-  top:
-    39%;
+    #6f8296;
 
   font-size:
     6px;
-
-  color:
-    #a8d9ff;
-
-  font-weight:
-    900;
-
-  background:
-    rgba(
-      4,
-      12,
-      20,
-      .78
-    );
-
-  padding:
-    2px 5px;
-
-  border-radius:
-    999px;
-}
-
-
-.threshold{
-
-  position:
-    absolute;
-
-  left:
-    39%;
-
-  bottom:
-    25%;
-
-  width:
-    14%;
-
-  height:
-    74px;
-
-  background:
-    radial-gradient(
-      circle at 20% 20%,
-      #8b8d90 0 8px,
-      transparent 9px
-    ),
-    radial-gradient(
-      circle at 55% 35%,
-      #6f7175 0 10px,
-      transparent 11px
-    ),
-    radial-gradient(
-      circle at 80% 70%,
-      #919397 0 8px,
-      transparent 9px
-    ),
-    radial-gradient(
-      circle at 35% 75%,
-      #696b6e 0 9px,
-      transparent 10px
-    ),
-    #45484c;
-
-  border-radius:
-    42% 42% 5px 5px;
-
-  box-shadow:
-    0 0 0 2px
-    #2a2d31 inset;
-}
-
-
-.threshold:after{
-
-  content:
-    "";
-
-  position:
-    absolute;
-
-  left:
-    -8px;
-
-  right:
-    -8px;
-
-  bottom:
-    -5px;
-
-  height:
-    14px;
-
-  background:
-    #383b3f;
-
-  border-radius:
-    50%;
-}
-
-
-.rack{
-
-  position:
-    absolute;
-
-  left:
-    67%;
-
-  bottom:
-    25%;
-
-  width:
-    26px;
-
-  height:
-    75px;
-
-  border:
-    2px solid #7f8b96;
-
-  background:
-    repeating-linear-gradient(
-      90deg,
-      #263847 0 3px,
-      #9aa6b1 3px 5px
-    );
-}
-
-
-.pump{
-
-  position:
-    absolute;
-
-  bottom:
-    24%;
-
-  width:
-    32px;
-
-  height:
-    115px;
-
-  border-left:
-    8px solid #7d8790;
-
-  border-radius:
-    7px;
-}
-
-
-.pump:before{
-
-  content:
-    "";
-
-  position:
-    absolute;
-
-  left:
-    -14px;
-
-  top:
-    -8px;
-
-  width:
-    24px;
-
-  height:
-    18px;
-
-  border-radius:
-    7px;
-
-  background:
-    #89939b;
-}
-
-
-.pump:after{
-
-  content:
-    "";
-
-  position:
-    absolute;
-
-  left:
-    -14px;
-
-  bottom:
-    -9px;
-
-  width:
-    24px;
-
-  height:
-    24px;
-
-  border-radius:
-    50%;
-
-  background:
-    #66717b;
-
-  border:
-    3px solid #313940;
-}
-
-
-.p1{
-
-  left:
-    77%;
-}
-
-
-.p2{
-
-  left:
-    84%;
-}
-
-
-.plant{
-
-  position:
-    absolute;
-
-  right:
-    2%;
-
-  bottom:
-    25%;
-
-  width:
-    74px;
-
-  height:
-    94px;
-
-  border-radius:
-    10px 10px 3px 3px;
-
-  background:
-    linear-gradient(
-      145deg,
-      #68717a,
-      #343b42
-    );
-
-  border:
-    1px solid #8a939b;
-
-  box-shadow:
-    0 0 15px
-    rgba(
-      90,
-      220,
-      90,
-      .08
-    );
-}
-
-
-.plant:before{
-
-  content:
-    "";
-
-  position:
-    absolute;
-
-  left:
-    14px;
-
-  top:
-    -36px;
-
-  width:
-    46px;
-
-  height:
-    42px;
-
-  border-radius:
-    50% 50% 0 0;
-
-  background:
-    #59626b;
-
-  border:
-    1px solid #8b949d;
-}
-
-
-.plantText{
-
-  position:
-    absolute;
-
-  left:
-    7px;
-
-  right:
-    7px;
-
-  top:
-    31px;
-
-  text-align:
-    center;
-
-  font-size:
-    8px;
-
-  font-weight:
-    900;
-}
-
-
-.mwNow{
-
-  position:
-    absolute;
-
-  left:
-    7px;
-
-  right:
-    7px;
-
-  bottom:
-    9px;
-
-  text-align:
-    center;
-
-  color:
-    var(--green);
-
-  font-size:
-    15px;
-
-  font-weight:
-    950;
-}
-
-
-.flowArrow{
-
-  position:
-    absolute;
-
-  color:
-    #65bdff;
-
-  font-size:
-    19px;
-
-  font-weight:
-    950;
-}
-
-
-.a1{
-
-  left:
-    15%;
-
-  top:
-    58%;
-}
-
-
-.a2{
-
-  left:
-    56%;
-
-  top:
-    58%;
-}
-
-
-.a3{
-
-  left:
-    72%;
-
-  top:
-    60%;
-}
-
-
-.reading{
-
-  position:
-    absolute;
-
-  z-index:
-    5;
-
-  min-width:
-    93px;
-
-  padding:
-    6px 7px;
-
-  border-radius:
-    8px;
-
-  background:
-    rgba(
-      4,
-      12,
-      20,
-      .88
-    );
-
-  border:
-    1px solid #1b3b57;
-
-  box-shadow:
-    0 4px 18px
-    rgba(
-      0,
-      0,
-      0,
-      .24
-    );
-}
-
-
-.reading .lab{
-
-  font-size:
-    6px;
-
-  color:
-    #93a2b4;
 
   font-weight:
     800;
 }
 
 
-.reading .val{
+/*
+  ÖT ADATDOBOZ EGY SORBAN.
+  EZEK MÁR NEM ABSZOLÚT POZÍCIONÁLTAK.
+*/
+
+.hydroReadings{
+
+  display:
+    grid;
+
+  grid-template-columns:
+    repeat(
+      5,
+      minmax(
+        0,
+        1fr
+      )
+    );
+
+  gap:
+    3px;
+
+  width:
+    100%;
+
+  margin-bottom:
+    5px;
+}
+
+
+.hCell{
+
+  min-width:
+    0;
+
+  padding:
+    4px 3px;
+
+  border:
+    1px solid #18364e;
+
+  border-radius:
+    7px;
+
+  background:
+    #07131f;
+
+  text-align:
+    center;
+
+  overflow:
+    hidden;
+}
+
+
+.hCell.liftCell{
+
+  border-color:
+    #2b6e36;
+
+  background:
+    #07170b;
+}
+
+
+.hLab{
+
+  min-height:
+    17px;
+
+  display:
+    flex;
+
+  align-items:
+    center;
+
+  justify-content:
+    center;
+
+  color:
+    #8fa0b2;
 
   font-size:
-    15px;
+    5.2px;
+
+  line-height:
+    1.05;
+
+  font-weight:
+    850;
+}
+
+
+.hVal{
+
+  margin-top:
+    2px;
+
+  font-size:
+    12px;
+
+  line-height:
+    1;
 
   font-weight:
     950;
 
-  margin-top:
-    1px;
+  white-space:
+    nowrap;
 }
 
 
-.reading .sub{
-
-  font-size:
-    7px;
-
-  color:
-    #d6dce3;
+.hMbf{
 
   margin-top:
     2px;
+
+  color:
+    #8899aa;
+
+  font-size:
+    5.5px;
+
+  white-space:
+    nowrap;
 }
 
 
-.reading .tm{
-
-  font-size:
-    6px;
-
-  color:
-    #77879a;
+.hTime{
 
   margin-top:
     2px;
+
+  color:
+    #5f7183;
+
+  font-size:
+    5px;
+
+  white-space:
+    nowrap;
 }
 
 
-.rRiver{
-
-  left:
-    3%;
-
-  top:
-    9%;
-}
-
-
-.rUp{
-
-  left:
-    24%;
-
-  top:
-    4%;
-}
-
-
-.rLift{
-
-  left:
-    43%;
-
-  top:
-    4%;
-
-  border-color:
-    #2f6e36;
-}
-
-
-.rDown{
-
-  left:
-    54%;
-
-  top:
-    8%;
-}
-
-
-.rHvcs{
-
-  left:
-    68%;
-
-  top:
-    5%;
-}
-
-
-.blueVal{
+.blueText{
 
   color:
     var(--blue);
 }
 
 
-.greenVal{
+.greenText{
 
   color:
     var(--green);
+}
+
+
+.orangeText{
+
+  color:
+    var(--orange);
 }
 
 
@@ -3552,10 +3055,326 @@ canvas{
 }
 
 
-.redLine{
+/*
+  SÉMA
+*/
+
+.hydroStage{
+
+  position:
+    relative;
+
+  width:
+    100%;
+
+  height:
+    154px;
+
+  overflow:
+    hidden;
+
+  border:
+    1px solid #183a54;
+
+  border-radius:
+    11px;
+
+  background:
+    linear-gradient(
+      180deg,
+      #102337 0%,
+      #122c44 47%,
+      #372e29 47%,
+      #302821 100%
+    );
+}
+
+
+/*
+  BAL OLDALI DUNA:
+  ALACSONYABB SZINT.
+*/
+
+.riverWater{
 
   position:
     absolute;
+
+  left:
+    0;
+
+  top:
+    72px;
+
+  width:
+    34%;
+
+  height:
+    47px;
+
+  background:
+    linear-gradient(
+      180deg,
+      #248bce,
+      #12659d
+    );
+
+  border-top:
+    2px solid #64c4ff;
+}
+
+
+/*
+  EMELKEDŐ TÖRÉS:
+  A DUNA FŐÁGTÓL JOBBRA,
+  AZ ERŐMŰ/HVCS FELÉ FELJEBB KERÜL A VÍZ.
+*/
+
+.riseWater{
+
+  position:
+    absolute;
+
+  left:
+    32%;
+
+  top:
+    60px;
+
+  width:
+    19%;
+
+  height:
+    59px;
+
+  background:
+    linear-gradient(
+      180deg,
+      #278fd0,
+      #14669c
+    );
+
+  clip-path:
+    polygon(
+      0 20%,
+      100% 0,
+      100% 100%,
+      0 100%
+    );
+
+  border-top:
+    0;
+}
+
+
+.riseLine{
+
+  position:
+    absolute;
+
+  left:
+    32%;
+
+  top:
+    66px;
+
+  width:
+    20%;
+
+  height:
+    2px;
+
+  background:
+    #65c5ff;
+
+  transform:
+    rotate(
+      -8deg
+    );
+
+  transform-origin:
+    left center;
+
+  box-shadow:
+    0 0 7px
+    rgba(
+      73,
+      169,
+      255,
+      .7
+    );
+}
+
+
+/*
+  FELVÍZ / HIDEGVÍZ-CSATORNA:
+  MAGASABB VÍZSZINT.
+*/
+
+.upWater{
+
+  position:
+    absolute;
+
+  left:
+    49%;
+
+  right:
+    0;
+
+  top:
+    60px;
+
+  height:
+    59px;
+
+  background:
+    linear-gradient(
+      180deg,
+      #278fd0,
+      #14669c
+    );
+
+  border-top:
+    2px solid #65c5ff;
+}
+
+
+/*
+  MEDER
+*/
+
+.riverBed{
+
+  position:
+    absolute;
+
+  left:
+    0;
+
+  right:
+    0;
+
+  top:
+    119px;
+
+  bottom:
+    0;
+
+  background:
+    linear-gradient(
+      180deg,
+      #4a3a2c,
+      #2e251f
+    );
+
+  border-top:
+    2px solid #5d4c3d;
+}
+
+
+/*
+  FENÉKKÜSZÖB KÖVEKBŐL
+*/
+
+.threshold{
+
+  position:
+    absolute;
+
+  z-index:
+    4;
+
+  left:
+    43%;
+
+  top:
+    88px;
+
+  width:
+    15%;
+
+  height:
+    38px;
+
+  background:
+    radial-gradient(
+      circle at 12% 78%,
+      #777b7d 0 7px,
+      transparent 8px
+    ),
+    radial-gradient(
+      circle at 30% 45%,
+      #96999b 0 7px,
+      transparent 8px
+    ),
+    radial-gradient(
+      circle at 47% 70%,
+      #626668 0 8px,
+      transparent 9px
+    ),
+    radial-gradient(
+      circle at 65% 35%,
+      #888c8f 0 8px,
+      transparent 9px
+    ),
+    radial-gradient(
+      circle at 83% 70%,
+      #6a6e70 0 7px,
+      transparent 8px
+    ),
+    #44484a;
+
+  border-radius:
+    50% 50% 8px 8px;
+
+  border-bottom:
+    2px solid #303437;
+}
+
+
+.thresholdLabel{
+
+  position:
+    absolute;
+
+  z-index:
+    7;
+
+  left:
+    41%;
+
+  top:
+    122px;
+
+  width:
+    19%;
+
+  text-align:
+    center;
+
+  color:
+    #b2bac2;
+
+  font-size:
+    5.5px;
+
+  font-weight:
+    900;
+}
+
+
+/*
+  LEÁLLÁSI SZINT
+*/
+
+.shutdownLine{
+
+  position:
+    absolute;
+
+  z-index:
+    5;
 
   left:
     2%;
@@ -3564,113 +3383,677 @@ canvas{
     2%;
 
   top:
-    68%;
+    111px;
 
   border-top:
-    2px dashed
-    var(--red);
-
-  opacity:
-    .88;
+    2px dashed var(--red);
 }
 
 
-.redLabel{
+.shutdownText{
 
   position:
     absolute;
 
+  z-index:
+    8;
+
   left:
-    4%;
+    2%;
 
   top:
-    69%;
+    113px;
 
   color:
     var(--red);
 
   font-size:
-    7px;
+    5.7px;
 
   font-weight:
     950;
 }
 
 
-.pumpPanel{
+/*
+  HIDEGVÍZ-CSATORNA BEÖMLÉS
+*/
+
+.channelGate{
 
   position:
     absolute;
 
-  right:
-    1.5%;
+  z-index:
+    5;
 
-  bottom:
-    2%;
+  left:
+    62%;
+
+  top:
+    70px;
+
+  width:
+    13px;
+
+  height:
+    49px;
+
+  border:
+    2px solid #92a1ad;
+
+  background:
+    repeating-linear-gradient(
+      90deg,
+      #253947 0 2px,
+      #8e9ba6 2px 4px
+    );
+}
+
+
+.channelLabel{
+
+  position:
+    absolute;
+
+  z-index:
+    7;
+
+  left:
+    58%;
+
+  top:
+    126px;
+
+  width:
+    23%;
+
+  text-align:
+    center;
+
+  color:
+    #86cfff;
+
+  font-size:
+    5.2px;
+
+  font-weight:
+    900;
+}
+
+
+/*
+  KÉT SZIVATTYÚ
+*/
+
+.pump{
+
+  position:
+    absolute;
 
   z-index:
     6;
 
+  top:
+    62px;
+
   width:
-    150px;
+    12px;
+
+  height:
+    62px;
+
+  border-left:
+    5px solid #929da6;
+
+  border-radius:
+    5px;
+}
+
+
+.pump:before{
+
+  content:
+    "";
+
+  position:
+    absolute;
+
+  left:
+    -8px;
+
+  top:
+    -5px;
+
+  width:
+    15px;
+
+  height:
+    11px;
+
+  border-radius:
+    4px;
+
+  background:
+    #919ba4;
+}
+
+
+.pump:after{
+
+  content:
+    "";
+
+  position:
+    absolute;
+
+  left:
+    -9px;
+
+  bottom:
+    -6px;
+
+  width:
+    16px;
+
+  height:
+    16px;
+
+  border-radius:
+    50%;
+
+  background:
+    #69747c;
+
+  border:
+    2px solid #333c43;
+}
+
+
+.pump1{
+
+  left:
+    74%;
+}
+
+
+.pump2{
+
+  left:
+    79%;
+}
+
+
+/*
+  SZIVATTYÚ TARTALÉK
+*/
+
+.reserveBadge{
+
+  position:
+    absolute;
+
+  z-index:
+    9;
+
+  left:
+    68%;
+
+  top:
+    8px;
+
+  width:
+    22%;
 
   padding:
-    7px;
+    5px 3px;
+
+  border:
+    1px solid #347843;
+
+  border-radius:
+    8px;
+
+  background:
+    rgba(
+      4,
+      24,
+      11,
+      .94
+    );
+
+  text-align:
+    center;
+}
+
+
+.reserveTitle{
+
+  color:
+    #a9b9ae;
+
+  font-size:
+    5px;
+
+  font-weight:
+    800;
+}
+
+
+.reserveValue{
+
+  margin-top:
+    1px;
+
+  color:
+    var(--green);
+
+  font-size:
+    17px;
+
+  line-height:
+    1;
+
+  font-weight:
+    950;
+}
+
+
+.reserveSub{
+
+  margin-top:
+    2px;
+
+  color:
+    #6f8d78;
+
+  font-size:
+    4.8px;
+
+  line-height:
+    1.05;
+}
+
+
+/*
+  ERŐMŰ
+*/
+
+.plant{
+
+  position:
+    absolute;
+
+  z-index:
+    5;
+
+  right:
+    2%;
+
+  top:
+    52px;
+
+  width:
+    55px;
+
+  height:
+    68px;
+
+  border:
+    1px solid #85939e;
+
+  border-radius:
+    8px 8px 3px 3px;
+
+  background:
+    linear-gradient(
+      145deg,
+      #68747e,
+      #353d43
+    );
+}
+
+
+.plant:before{
+
+  content:
+    "";
+
+  position:
+    absolute;
+
+  left:
+    11px;
+
+  top:
+    -22px;
+
+  width:
+    32px;
+
+  height:
+    25px;
+
+  border:
+    1px solid #8e999f;
+
+  border-radius:
+    50% 50% 0 0;
+
+  background:
+    #5d6870;
+}
+
+
+.plantName{
+
+  position:
+    absolute;
+
+  left:
+    3px;
+
+  right:
+    3px;
+
+  top:
+    16px;
+
+  text-align:
+    center;
+
+  color:
+    #eef3f7;
+
+  font-size:
+    5.6px;
+
+  line-height:
+    1.05;
+
+  font-weight:
+    900;
+}
+
+
+.plantMw{
+
+  position:
+    absolute;
+
+  left:
+    2px;
+
+  right:
+    2px;
+
+  bottom:
+    8px;
+
+  text-align:
+    center;
+
+  color:
+    var(--green);
+
+  font-size:
+    11px;
+
+  font-weight:
+    950;
+}
+
+
+/*
+  FOLYÁSIRÁNYT MUTATÓ NYILAK
+*/
+
+.flow{
+
+  position:
+    absolute;
+
+  z-index:
+    6;
+
+  color:
+    #75c9ff;
+
+  font-size:
+    16px;
+
+  font-weight:
+    950;
+
+  opacity:
+    .85;
+}
+
+
+.flow1{
+
+  left:
+    18%;
+
+  top:
+    80px;
+}
+
+
+.flow2{
+
+  left:
+    57%;
+
+  top:
+    74px;
+}
+
+
+.flow3{
+
+  left:
+    68%;
+
+  top:
+    78px;
+}
+
+
+/*
+  DUZZASZTÁS FELIRAT A TÖRÉSNÉL
+*/
+
+.riseBadge{
+
+  position:
+    absolute;
+
+  z-index:
+    9;
+
+  left:
+    34%;
+
+  top:
+    18px;
+
+  width:
+    29%;
+
+  padding:
+    4px;
+
+  border:
+    1px solid #32733d;
+
+  border-radius:
+    8px;
+
+  background:
+    rgba(
+      5,
+      22,
+      9,
+      .94
+    );
+
+  text-align:
+    center;
+}
+
+
+.riseSmall{
+
+  color:
+    #8fa997;
+
+  font-size:
+    4.9px;
+
+  font-weight:
+    850;
+}
+
+
+.riseBig{
+
+  color:
+    var(--green);
+
+  font-size:
+    17px;
+
+  line-height:
+    1;
+
+  font-weight:
+    950;
+
+  margin-top:
+    1px;
+}
+
+
+/*
+  KIS DUZZASZTÁS GRAFIKON
+*/
+
+.upliftBox{
+
+  margin-top:
+    5px;
+
+  display:
+    grid;
+
+  grid-template-columns:
+    86px 1fr;
+
+  gap:
+    5px;
+
+  align-items:
+    stretch;
+}
+
+
+.upliftInfo{
+
+  min-width:
+    0;
+
+  padding:
+    6px;
+
+  border:
+    1px solid #254f2c;
 
   border-radius:
     9px;
 
   background:
-    rgba(
-      4,
-      16,
-      10,
-      .93
-    );
-
-  border:
-    1px solid #2f6e36;
+    #07150a;
 }
 
 
-.pumpPanel .pv{
+.upliftLabel{
+
+  color:
+    #829888;
+
+  font-size:
+    5.6px;
+
+  font-weight:
+    850;
+}
+
+
+.upliftNow{
+
+  margin-top:
+    2px;
+
+  color:
+    var(--green);
 
   font-size:
     18px;
 
   font-weight:
     950;
-
-  color:
-    var(--green);
 }
 
 
-.pumpPanel .mbf{
-
-  font-size:
-    11px;
-
-  font-weight:
-    900;
-
-  color:
-    #5bb5ff;
-}
-
-
-.pumpPanel .tiny{
-
-  font-size:
-    6px;
-
-  color:
-    #b8c3cd;
+.upliftFormula{
 
   margin-top:
     2px;
+
+  color:
+    #64766a;
+
+  font-size:
+    5px;
 }
 
+
+.upliftChartShell{
+
+  min-width:
+    0;
+
+  height:
+    58px;
+
+  padding:
+    4px;
+
+  border:
+    1px solid #16324a;
+
+  border-radius:
+    9px;
+
+  background:
+    #050e18;
+}
+
+
+#upliftChart{
+
+  width:
+    100%;
+
+  height:
+    100%;
+}
+
+
+/*
+  ALSÓ RÉSZ
+*/
 
 .bottom{
 
@@ -3694,13 +4077,13 @@ canvas{
     center;
 
   min-height:
-    43px;
+    41px;
 
   border:
     1px solid #3e2255;
 
   border-radius:
-    11px;
+    10px;
 
   background:
     #100817;
@@ -3709,7 +4092,7 @@ canvas{
     var(--purple);
 
   font-size:
-    12px;
+    11px;
 
   font-weight:
     950;
@@ -3728,7 +4111,7 @@ canvas{
     1px solid #17334a;
 
   border-radius:
-    11px;
+    10px;
 
   background:
     #07111c;
@@ -3744,7 +4127,7 @@ canvas{
     #8494a7;
 
   font-size:
-    7px;
+    6.5px;
 
   margin-bottom:
     3px;
@@ -3757,7 +4140,7 @@ canvas{
     grid;
 
   grid-template-columns:
-    1fr 57px;
+    1fr 55px;
 
   gap:
     4px;
@@ -3770,7 +4153,7 @@ canvas{
     0;
 
   height:
-    25px;
+    24px;
 
   display:
     flex;
@@ -3794,7 +4177,7 @@ canvas{
     #d353ff;
 
   font-size:
-    6.5px;
+    6px;
 
   white-space:
     nowrap;
@@ -3813,7 +4196,7 @@ canvas{
 .copy{
 
   height:
-    25px;
+    24px;
 
   border:
     0;
@@ -3828,7 +4211,7 @@ canvas{
     white;
 
   font-size:
-    7px;
+    6.5px;
 
   font-weight:
     900;
@@ -3838,7 +4221,7 @@ canvas{
 .version{
 
   margin-top:
-    6px;
+    5px;
 
   text-align:
     center;
@@ -3847,7 +4230,7 @@ canvas{
     #405268;
 
   font-size:
-    6px;
+    5.5px;
 
   letter-spacing:
     1px;
@@ -3943,28 +4326,180 @@ canvas{
   .card{
 
     margin-bottom:
-      0;
+      8px;
   }
 
 
   .chartWrap{
 
     height:
-      180px;
+      170px;
   }
 
 
   .big{
 
     font-size:
-      70px;
+      68px;
   }
 
 
   .hydroStage{
 
     height:
-      320px;
+      230px;
+  }
+
+
+  .riverWater{
+
+    top:
+      111px;
+
+    height:
+      72px;
+  }
+
+
+  .riseWater{
+
+    top:
+      91px;
+
+    height:
+      92px;
+  }
+
+
+  .riseLine{
+
+    top:
+      100px;
+  }
+
+
+  .upWater{
+
+    top:
+      91px;
+
+    height:
+      92px;
+  }
+
+
+  .riverBed{
+
+    top:
+      183px;
+  }
+
+
+  .threshold{
+
+    top:
+      135px;
+
+    height:
+      58px;
+  }
+
+
+  .thresholdLabel{
+
+    top:
+      196px;
+  }
+
+
+  .shutdownLine{
+
+    top:
+      171px;
+  }
+
+
+  .shutdownText{
+
+    top:
+      174px;
+  }
+
+
+  .channelGate{
+
+    top:
+      105px;
+
+    height:
+      78px;
+  }
+
+
+  .channelLabel{
+
+    top:
+      195px;
+  }
+
+
+  .pump{
+
+    top:
+      98px;
+
+    height:
+      90px;
+  }
+
+
+  .plant{
+
+    top:
+      83px;
+
+    width:
+      78px;
+
+    height:
+      100px;
+  }
+
+
+  .plant:before{
+
+    left:
+      15px;
+
+    width:
+      46px;
+
+    height:
+      34px;
+
+    top:
+      -31px;
+  }
+
+
+  .plantName{
+
+    font-size:
+      8px;
+  }
+
+
+  .plantMw{
+
+    font-size:
+      16px;
+  }
+
+
+  .hVal{
+
+    font-size:
+      17px;
   }
 }
 
@@ -4007,7 +4542,9 @@ canvas{
   <div class="cards">
 
 
-    <!-- PAKS -->
+    <!-- ===================================================
+         PAKS
+    ==================================================== -->
 
 
     <div class="card">
@@ -4154,7 +4691,9 @@ canvas{
 
 
 
-    <!-- DUNA -->
+    <!-- ===================================================
+         DUNA
+    ==================================================== -->
 
 
     <div class="card">
@@ -4286,7 +4825,7 @@ canvas{
 
 
             <div class="metricName">
-              KILÉPŐ VÍZ HŐ • HŐCSÓVA ELEJÉN
+              KILÉPŐ VÍZ HŐ<br>HŐCSÓVA ELEJÉN
             </div>
 
 
@@ -4368,7 +4907,7 @@ canvas{
 
 
             <div class="distanceLabel">
-              LEÁLLÁSI KÜSZÖBIG
+              −134 CM KÜSZÖBIG
             </div>
 
 
@@ -4394,7 +4933,7 @@ canvas{
 
 
             <div class="distanceLabel">
-              BIZTONSÁGI HATÁRIG
+              −144 CM HATÁRIG
             </div>
 
 
@@ -4428,7 +4967,7 @@ canvas{
 
 
   <!-- =====================================================
-       ÚJ ALSÓ ÉLŐ SÉMA
+       V8 HIDRAULIKAI PANEL
   ====================================================== -->
 
 
@@ -4439,97 +4978,40 @@ canvas{
 
 
       <div class="hydroTitle">
-        DUNA → FENÉKKÜSZÖB → HIDEGVÍZ-CSATORNA → SZIVATTYÚK → ERŐMŰ
+
+        DUNA → FENÉKKÜSZÖB → HŰTŐVÍZ → ERŐMŰ
+
       </div>
 
 
       <div class="hydroSub">
-        VÍZÜGY ÉLŐ MÉRÉSEK
+
+        VÍZÜGY ÉLŐ
+
       </div>
 
 
     </div>
 
 
-    <div class="hydroStage">
+
+    <!-- ===================================================
+         MÉRÉSI ADATOK
+    ==================================================== -->
 
 
-      <div class="skyGlow"></div>
+    <div class="hydroReadings">
 
 
-      <div class="waterLine"></div>
+      <div class="hCell">
 
 
-      <div class="waterBreak"></div>
-
-
-      <div class="breakLabel">
-        VÍZFELSZÍN-TÖRÉS / DUZZASZTÁS
-      </div>
-
-
-      <div class="threshold"></div>
-
-
-      <div class="rack"></div>
-
-
-      <div class="pump p1"></div>
-
-
-      <div class="pump p2"></div>
-
-
-      <div class="plant">
-
-
-        <div class="plantText">
-          PAKSI<br>
-          ATOMERŐMŰ
+        <div class="hLab">
+          DUNA<br>PAKS
         </div>
 
 
-        <div class="mwNow">
-
-          ${
-            Number.isFinite(
-              total
-            )
-              ? total +
-                " MW"
-              : "— MW"
-          }
-
-        </div>
-
-
-      </div>
-
-
-      <div class="flowArrow a1">
-        →
-      </div>
-
-
-      <div class="flowArrow a2">
-        →
-      </div>
-
-
-      <div class="flowArrow a3">
-        ↗
-      </div>
-
-
-      <div class="reading rRiver">
-
-
-        <div class="lab">
-          DUNA • PAKS FŐÁG
-        </div>
-
-
-        <div class="val blueVal">
+        <div class="hVal blueText">
 
           ${
             Number.isFinite(
@@ -4549,7 +5031,7 @@ canvas{
         </div>
 
 
-        <div class="sub">
+        <div class="hMbf">
 
           ${
             Number.isFinite(
@@ -4565,9 +5047,10 @@ canvas{
         </div>
 
 
-        <div class="tm">
-          MÉRÉS:
+        <div class="hTime">
+
           ${shortTime(riverTime)}
+
         </div>
 
 
@@ -4575,15 +5058,15 @@ canvas{
 
 
 
-      <div class="reading rUp">
+      <div class="hCell">
 
 
-        <div class="lab">
-          FENÉKKÜSZÖB • FELVÍZ
+        <div class="hLab">
+          KÜSZÖB<br>FELVÍZ
         </div>
 
 
-        <div class="val greenVal">
+        <div class="hVal greenText">
 
           ${
             Number.isFinite(
@@ -4603,7 +5086,7 @@ canvas{
         </div>
 
 
-        <div class="sub">
+        <div class="hMbf">
 
           ${
             Number.isFinite(
@@ -4619,11 +5102,12 @@ canvas{
         </div>
 
 
-        <div class="tm">
-          MÉRÉS:
+        <div class="hTime">
+
           ${shortTime(
             thresholdUpTime
           )}
+
         </div>
 
 
@@ -4631,15 +5115,15 @@ canvas{
 
 
 
-      <div class="reading rLift">
+      <div class="hCell liftCell">
 
 
-        <div class="lab">
-          DUZZASZTÁS EREDMÉNYE
+        <div class="hLab">
+          DUZZASZTÁS<br>EREDMÉNYE
         </div>
 
 
-        <div class="val greenVal">
+        <div class="hVal greenText">
 
           ${
             Number.isFinite(
@@ -4654,13 +5138,17 @@ canvas{
         </div>
 
 
-        <div class="sub">
+        <div class="hMbf">
+
           FELVÍZ − ALVÍZ
+
         </div>
 
 
-        <div class="tm">
-          ÉLŐ KÜLÖNBSÉG
+        <div class="hTime">
+
+          ÉLŐ
+
         </div>
 
 
@@ -4668,15 +5156,15 @@ canvas{
 
 
 
-      <div class="reading rDown">
+      <div class="hCell">
 
 
-        <div class="lab">
-          FENÉKKÜSZÖB • ALVÍZ
+        <div class="hLab">
+          KÜSZÖB<br>ALVÍZ
         </div>
 
 
-        <div class="val blueVal">
+        <div class="hVal blueText">
 
           ${
             Number.isFinite(
@@ -4696,7 +5184,7 @@ canvas{
         </div>
 
 
-        <div class="sub">
+        <div class="hMbf">
 
           ${
             Number.isFinite(
@@ -4712,11 +5200,12 @@ canvas{
         </div>
 
 
-        <div class="tm">
-          MÉRÉS:
+        <div class="hTime">
+
           ${shortTime(
             thresholdDownTime
           )}
+
         </div>
 
 
@@ -4724,15 +5213,15 @@ canvas{
 
 
 
-      <div class="reading rHvcs">
+      <div class="hCell">
 
 
-        <div class="lab">
-          HIDEGVÍZ-CSATORNA • ÖBLÖZET
+        <div class="hLab">
+          HIDEGVÍZ<br>ÖBLÖZET
         </div>
 
 
-        <div class="val blueVal">
+        <div class="hVal blueText">
 
           ${
             Number.isFinite(
@@ -4752,7 +5241,7 @@ canvas{
         </div>
 
 
-        <div class="sub">
+        <div class="hMbf">
 
           ${
             Number.isFinite(
@@ -4768,54 +5257,79 @@ canvas{
         </div>
 
 
-        <div class="tm">
-          MÉRÉS:
+        <div class="hTime">
+
           ${shortTime(
             hvcsTime
           )}
+
         </div>
 
 
       </div>
 
 
+    </div>
 
-      <div class="redLine"></div>
 
 
-      <div class="redLabel">
+    <!-- ===================================================
+         SEMATIKUS ÁBRA
+    ==================================================== -->
 
+
+    <div class="hydroStage">
+
+
+      <div class="riverWater"></div>
+
+      <div class="riseWater"></div>
+
+      <div class="riseLine"></div>
+
+      <div class="upWater"></div>
+
+      <div class="riverBed"></div>
+
+
+      <div class="threshold"></div>
+
+
+      <div class="thresholdLabel">
+        KÖVES<br>FENÉKKÜSZÖB
+      </div>
+
+
+      <div class="shutdownLine"></div>
+
+
+      <div class="shutdownText">
         −144 cm • LEÁLLÁSI SZINT
-
       </div>
 
 
+      <div class="channelGate"></div>
 
-      <div class="pumpPanel">
+
+      <div class="channelLabel">
+        HIDEGVÍZ-CSATORNA
+      </div>
 
 
-        <div class="tiny">
-          SZIVATTYÚ SZINT • ÖBLÖZET
+      <div class="pump pump1"></div>
+
+      <div class="pump pump2"></div>
+
+
+      <div class="reserveBadge">
+
+
+        <div class="reserveTitle">
+          SZIVATTYÚ TARTALÉK
         </div>
 
 
-        <div class="mbf">
-
-          ${
-            Number.isFinite(
-              hvcsMbf
-            )
-              ? fmt2(
-                  hvcsMbf
-                ) +
-                " mBf"
-              : "—"
-          }
-
-        </div>
-
-
-        <div class="pv">
+        <div class="reserveValue">
 
           ${
             Number.isFinite(
@@ -4829,10 +5343,33 @@ canvas{
         </div>
 
 
-        <div class="tiny">
+        <div class="reserveSub">
+          83,60 mBf MINIMUM FELETT
+        </div>
 
-          TARTALÉK A 83,60 mBf
-          MINIMUM FELETT
+
+      </div>
+
+
+      <div class="riseBadge">
+
+
+        <div class="riseSmall">
+          DUZZASZTÁS
+        </div>
+
+
+        <div class="riseBig">
+
+          ${
+            Number.isFinite(
+              uplift
+            )
+              ? "+" +
+                uplift +
+                " cm"
+              : "—"
+          }
 
         </div>
 
@@ -4840,27 +5377,114 @@ canvas{
       </div>
 
 
+      <div class="plant">
+
+
+        <div class="plantName">
+          PAKSI<br>
+          ATOMERŐMŰ
+        </div>
+
+
+        <div class="plantMw">
+
+          ${
+            Number.isFinite(
+              total
+            )
+              ? total +
+                " MW"
+              : "— MW"
+          }
+
+        </div>
+
+
+      </div>
+
+
+      <div class="flow flow1">
+        →
+      </div>
+
+
+      <div class="flow flow2">
+        →
+      </div>
+
+
+      <div class="flow flow3">
+        →
+      </div>
+
+
     </div>
+
+
+
+    <!-- ===================================================
+         DUZZASZTÁS GRAFIKON
+    ==================================================== -->
+
+
+    <div class="upliftBox">
+
+
+      <div class="upliftInfo">
+
+
+        <div class="upliftLabel">
+          DUZZASZTÁS
+        </div>
+
+
+        <div class="upliftNow">
+
+          ${
+            Number.isFinite(
+              uplift
+            )
+              ? "+" +
+                uplift +
+                " cm"
+              : "—"
+          }
+
+        </div>
+
+
+        <div class="upliftFormula">
+          FELVÍZ − ALVÍZ
+        </div>
+
+
+      </div>
+
+
+      <div class="upliftChartShell">
+
+        <canvas
+          id="upliftChart"
+        ></canvas>
+
+      </div>
+
+
+    </div>
+
 
 
     <div class="source">
 
       VÍZÜGY
 
-      • FŐÁG
-      ${shortTime(riverTime)}
+      • FŐÁG ${shortTime(riverTime)}
 
-      • FELVÍZ
-      ${shortTime(thresholdUpTime)}
+      • FELVÍZ ${shortTime(thresholdUpTime)}
 
-      • ALVÍZ
-      ${shortTime(thresholdDownTime)}
+      • ALVÍZ ${shortTime(thresholdDownTime)}
 
-      • HVCS
-      ${shortTime(hvcsTime)}
-
-      • DUZZASZTÁS =
-      FELVÍZ − ALVÍZ
+      • HVCS ${shortTime(hvcsTime)}
 
     </div>
 
@@ -4869,11 +5493,18 @@ canvas{
 
 
 
+  <!-- =====================================================
+       ALSÓ SÁV
+  ====================================================== -->
+
+
   <div class="bottom">
 
 
     <div class="signature">
+
       IGLÓDI
+
     </div>
 
 
@@ -4881,7 +5512,9 @@ canvas{
 
 
       <div class="shareTitle">
+
         🔗 PARANCSIKON / MEGOSZTÁS
+
       </div>
 
 
@@ -4892,7 +5525,9 @@ canvas{
           class="url"
           href="${PUBLIC_URL}"
         >
+
           ${PUBLIC_URL}
+
         </a>
 
 
@@ -4900,7 +5535,9 @@ canvas{
           class="copy"
           id="copyButton"
         >
+
           MÁSOLÁS
+
         </button>
 
 
@@ -4914,19 +5551,25 @@ canvas{
 
 
   <div class="version">
+
     ${VERSION}
+
   </div>
 
 
 </div>
 
 
+
 <div
   id="toast"
   class="toast"
 >
+
   Link másolva
+
 </div>
+
 
 
 <script>
@@ -4979,8 +5622,7 @@ async function getHistory(
 
     if (
       json &&
-      json.ok ===
-      true &&
+      json.ok === true &&
       Array.isArray(
         json.data
       )
@@ -5030,7 +5672,7 @@ async function loadHistory(
 
 
 // ============================================================
-// GRAFIKON
+// FŐ GRAFIKON
 // ============================================================
 
 async function drawChart(
@@ -5464,8 +6106,7 @@ async function drawChart(
 
 
     const label =
-      hours >=
-      240
+      hours >= 240
 
         ? date.toLocaleDateString(
             "hu-HU",
@@ -5802,6 +6443,392 @@ async function drawChart(
 
 
 // ============================================================
+// DUZZASZTÁS GRAFIKON
+// ============================================================
+
+async function drawUpliftChart() {
+
+  const canvas =
+    document.getElementById(
+      "upliftChart"
+    );
+
+
+  if (!canvas) {
+
+    return;
+  }
+
+
+  const rows =
+    await loadHistory(
+      24
+    );
+
+
+  const points =
+    rows
+      .filter(
+        row =>
+          row.threshold_up !==
+          null &&
+          row.threshold_up !==
+          undefined &&
+          row.threshold_down !==
+          null &&
+          row.threshold_down !==
+          undefined
+      )
+      .map(
+        row => ({
+
+          x:
+            Number(
+              row.ts
+            ),
+
+          y:
+            Number(
+              row.threshold_up
+            ) -
+            Number(
+              row.threshold_down
+            )
+        })
+      )
+      .filter(
+        point =>
+          Number.isFinite(
+            point.x
+          ) &&
+          Number.isFinite(
+            point.y
+          )
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          a.x -
+          b.x
+      );
+
+
+  const rect =
+    canvas
+      .getBoundingClientRect();
+
+
+  const ratio =
+    window.devicePixelRatio ||
+    1;
+
+
+  canvas.width =
+    Math.max(
+      1,
+      Math.floor(
+        rect.width *
+        ratio
+      )
+    );
+
+
+  canvas.height =
+    Math.max(
+      1,
+      Math.floor(
+        rect.height *
+        ratio
+      )
+    );
+
+
+  const ctx =
+    canvas.getContext(
+      "2d"
+    );
+
+
+  ctx.setTransform(
+    ratio,
+    0,
+    0,
+    ratio,
+    0,
+    0
+  );
+
+
+  const W =
+    rect.width;
+
+
+  const H =
+    rect.height;
+
+
+  ctx.clearRect(
+    0,
+    0,
+    W,
+    H
+  );
+
+
+  ctx.strokeStyle =
+    "rgba(100,140,165,.15)";
+
+
+  ctx.lineWidth =
+    1;
+
+
+  for (
+    let i = 1;
+    i <= 2;
+    i++
+  ) {
+
+    const y =
+      H *
+      i /
+      3;
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+      0,
+      y
+    );
+
+    ctx.lineTo(
+      W,
+      y
+    );
+
+    ctx.stroke();
+  }
+
+
+  if (
+    points.length ===
+    0
+  ) {
+
+    ctx.fillStyle =
+      "#64778a";
+
+
+    ctx.font =
+      "7px -apple-system";
+
+
+    ctx.fillText(
+      "Duzzasztási adatsorra várunk…",
+      7,
+      H /
+      2
+    );
+
+
+    return;
+  }
+
+
+  let minY =
+    Math.min(
+      ...points.map(
+        p =>
+          p.y
+      )
+    );
+
+
+  let maxY =
+    Math.max(
+      ...points.map(
+        p =>
+          p.y
+      )
+    );
+
+
+  if (
+    minY ===
+    maxY
+  ) {
+
+    minY -=
+      1;
+
+
+    maxY +=
+      1;
+  }
+
+
+  const yMargin =
+    Math.max(
+      1,
+      (
+        maxY -
+        minY
+      ) *
+      .25
+    );
+
+
+  minY -=
+    yMargin;
+
+
+  maxY +=
+    yMargin;
+
+
+  const maxX =
+    Date.now();
+
+
+  const minX =
+    maxX -
+    24 *
+    60 *
+    60 *
+    1000;
+
+
+  const sx =
+    x =>
+      (
+        (
+          x -
+          minX
+        ) /
+        (
+          maxX -
+          minX
+        )
+      ) *
+      W;
+
+
+  const sy =
+    y =>
+      4 +
+      (
+        (
+          maxY -
+          y
+        ) /
+        (
+          maxY -
+          minY
+        )
+      ) *
+      (
+        H -
+        10
+      );
+
+
+  ctx.strokeStyle =
+    "#66df57";
+
+
+  ctx.fillStyle =
+    "#66df57";
+
+
+  ctx.lineWidth =
+    2;
+
+
+  ctx.lineJoin =
+    "round";
+
+
+  ctx.lineCap =
+    "round";
+
+
+  ctx.beginPath();
+
+
+  points.forEach(
+    (
+      point,
+      index
+    ) => {
+
+      const x =
+        sx(
+          point.x
+        );
+
+
+      const y =
+        sy(
+          point.y
+        );
+
+
+      if (
+        index ===
+        0
+      ) {
+
+        ctx.moveTo(
+          x,
+          y
+        );
+
+      } else {
+
+        ctx.lineTo(
+          x,
+          y
+        );
+      }
+    }
+  );
+
+
+  ctx.stroke();
+
+
+  const last =
+    points[
+      points.length -
+      1
+    ];
+
+
+  ctx.beginPath();
+
+
+  ctx.arc(
+    sx(
+      last.x
+    ),
+    sy(
+      last.y
+    ),
+    2.8,
+    0,
+    Math.PI *
+    2
+  );
+
+
+  ctx.fill();
+}
+
+
+// ============================================================
 // ÚJRARAJZOLÁS
 // ============================================================
 
@@ -5826,7 +6853,9 @@ async function redraw() {
         "water",
         selectedRange.water,
         "cm"
-      )
+      ),
+
+      drawUpliftChart()
 
     ]
   );
