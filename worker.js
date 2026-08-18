@@ -19,10 +19,14 @@ const PUBLIC_URL =
 const FB_IMAGE_RAW =
   "https://raw.githubusercontent.com/laszloiglodi-beep/Paks-monitor/main/60CF06BF-2068-420D-AC41-224FB3B75358.png";
 
-const VERSION = "VPAKS01";
+const VERSION =
+  "VPAKS02";
 
-const PAKS_ZERO_MBF = 85.380;
-const LOCAL_ZERO_MBF = 85.000;
+const PAKS_ZERO_MBF =
+  85.380;
+
+const LOCAL_ZERO_MBF =
+  85.000;
 
 
 // ============================================================
@@ -43,29 +47,38 @@ function clean(html) {
     .trim();
 }
 
+
 function fmt1(value) {
   return (
     typeof value === "number" &&
     Number.isFinite(value)
   )
-    ? value.toLocaleString("hu-HU", {
-        minimumFractionDigits: 1,
-        maximumFractionDigits: 1
-      })
+    ? value.toLocaleString(
+        "hu-HU",
+        {
+          minimumFractionDigits: 1,
+          maximumFractionDigits: 1
+        }
+      )
     : "—";
 }
+
 
 function fmt2(value) {
   return (
     typeof value === "number" &&
     Number.isFinite(value)
   )
-    ? value.toLocaleString("hu-HU", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
-      })
+    ? value.toLocaleString(
+        "hu-HU",
+        {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        }
+      )
     : "—";
 }
+
 
 function shortTime(value) {
   const m =
@@ -105,10 +118,10 @@ function getBudapestOffset(timestamp) {
 
   const values = {};
 
-  for (const p of parts) {
-    if (p.type !== "literal") {
-      values[p.type] =
-        Number(p.value);
+  for (const part of parts) {
+    if (part.type !== "literal") {
+      values[part.type] =
+        Number(part.value);
     }
   }
 
@@ -128,40 +141,48 @@ function getBudapestOffset(timestamp) {
   );
 }
 
+
 function parseHuTimestamp(value) {
-  const m =
+  const match =
     String(value || "")
       .match(
         /(\d{4})\.\s*(\d{2})\.\s*(\d{2})\.?\s*(\d{2}):(\d{2})/
       );
 
-  if (!m) {
+  if (!match) {
     return null;
   }
 
   const desired =
     Date.UTC(
-      Number(m[1]),
-      Number(m[2]) - 1,
-      Number(m[3]),
-      Number(m[4]),
-      Number(m[5]),
+      Number(match[1]),
+      Number(match[2]) - 1,
+      Number(match[3]),
+      Number(match[4]),
+      Number(match[5]),
       0
     );
 
-  let ts =
+  let timestamp =
     desired;
 
-  for (let i = 0; i < 2; i++) {
-    ts =
+  for (
+    let i = 0;
+    i < 2;
+    i++
+  ) {
+    timestamp =
       desired -
-      getBudapestOffset(ts);
+      getBudapestOffset(
+        timestamp
+      );
   }
 
-  return Number.isFinite(ts)
-    ? ts
+  return Number.isFinite(timestamp)
+    ? timestamp
     : null;
 }
+
 
 function cmToMbf(
   cm,
@@ -171,6 +192,7 @@ function cmToMbf(
     ? zero + cm / 100
     : null;
 }
+
 
 function direction(
   current,
@@ -232,7 +254,7 @@ async function fetchVizStation(
         {
           headers: {
             "User-Agent":
-              "Mozilla/5.0 (compatible; VPAKS01)"
+              "Mozilla/5.0 (compatible; VPAKS02)"
           },
           cf: {
             cacheTtl: 60,
@@ -485,7 +507,9 @@ async function getCurrentData() {
     "OK";
 
 
+  // ==========================================================
   // OAH
+  // ==========================================================
 
   try {
     const response =
@@ -494,7 +518,7 @@ async function getCurrentData() {
         {
           headers: {
             "User-Agent":
-              "Mozilla/5.0 (compatible; VPAKS01)"
+              "Mozilla/5.0 (compatible; VPAKS02)"
           },
           cf: {
             cacheTtl: 60,
@@ -601,7 +625,9 @@ async function getCurrentData() {
   }
 
 
+  // ==========================================================
   // VÍZÜGY
+  // ==========================================================
 
   const [
     river,
@@ -713,6 +739,9 @@ async function getCurrentData() {
     riverTimestamp:
       river.timestamp,
 
+    riverStatus:
+      river.status,
+
     riverPrevious:
       river.previousValue,
 
@@ -726,6 +755,9 @@ async function getCurrentData() {
 
     hvcsTimestamp:
       hvcs.timestamp,
+
+    hvcsStatus:
+      hvcs.status,
 
     hvcsPrevious:
       hvcs.previousValue,
@@ -741,6 +773,9 @@ async function getCurrentData() {
     thresholdUpTimestamp:
       thresholdUp.timestamp,
 
+    thresholdUpStatus:
+      thresholdUp.status,
+
     thresholdUpPrevious:
       thresholdUp.previousValue,
 
@@ -754,6 +789,9 @@ async function getCurrentData() {
 
     thresholdDownTimestamp:
       thresholdDown.timestamp,
+
+    thresholdDownStatus:
+      thresholdDown.status,
 
     thresholdDownPrevious:
       thresholdDown.previousValue,
@@ -938,7 +976,9 @@ export default {
       );
 
 
+    // ========================================================
     // VERSION
+    // ========================================================
 
     if (
       url.pathname ===
@@ -958,7 +998,9 @@ export default {
     }
 
 
+    // ========================================================
     // FACEBOOK IMAGE
+    // ========================================================
 
     if (
       url.pathname ===
@@ -1002,7 +1044,9 @@ export default {
     }
 
 
+    // ========================================================
     // HISTORY
+    // ========================================================
 
     if (
       url.pathname ===
@@ -1015,7 +1059,7 @@ export default {
           Number(
             url.searchParams
               .get("hours") ||
-            6
+            24
           );
 
         if (
@@ -1025,7 +1069,7 @@ export default {
             240
           ].includes(hours)
         ) {
-          hours = 6;
+          hours = 24;
         }
 
         const cutoff =
@@ -1059,6 +1103,9 @@ export default {
             {
               ok: true,
               version: VERSION,
+              count:
+                result.results?.length ||
+                0,
               data:
                 result.results ||
                 []
@@ -1099,17 +1146,26 @@ export default {
     }
 
 
+    // ========================================================
     // CURRENT
+    // ========================================================
 
     const data =
       await getCurrentData();
 
-    ctx.waitUntil(
-      saveMeasurement(
-        env,
-        data
-      )
-    );
+
+    if (
+      ctx &&
+      typeof ctx.waitUntil ===
+        "function"
+    ) {
+      ctx.waitUntil(
+        saveMeasurement(
+          env,
+          data
+        )
+      );
+    }
 
 
     const {
@@ -1151,15 +1207,12 @@ export default {
         ? `${total} MW`
         : "— MW";
 
-    const waterText =
-      Number.isFinite(water)
-        ? `${water} cm`
-        : "— cm";
 
     const flowText =
       Number.isFinite(flow)
         ? `${fmt1(flow)} m³/s`
         : "— m³/s";
+
 
     const tempText =
       Number.isFinite(temp)
@@ -1171,6 +1224,7 @@ export default {
       Number.isFinite(water)
         ? water + 134
         : null;
+
 
     const safetyDistance =
       Number.isFinite(water)
@@ -1184,17 +1238,20 @@ export default {
         riverPrevious
       );
 
+
     const hvcsDir =
       direction(
         hvcs,
         hvcsPrevious
       );
 
+
     const upDir =
       direction(
         thresholdUp,
         thresholdUpPrevious
       );
+
 
     const downDir =
       direction(
@@ -1203,47 +1260,9 @@ export default {
       );
 
 
-    let riverClass =
-      "normal";
+    let markerPct =
+      0;
 
-    let riverLabel =
-      "NORMÁL";
-
-
-    if (
-      Number.isFinite(water)
-    ) {
-      if (
-        water <= -144
-      ) {
-        riverClass =
-          "danger";
-
-        riverLabel =
-          "KRITIKUS";
-
-      } else if (
-        water <= -134
-      ) {
-        riverClass =
-          "warning";
-
-        riverLabel =
-          "LEÁLLÁSI TARTOMÁNY";
-
-      } else if (
-        water <= -129
-      ) {
-        riverClass =
-          "warning";
-
-        riverLabel =
-          "FIGYELMEZTETÉS";
-      }
-    }
-
-
-    let markerPct = 0;
 
     if (
       Number.isFinite(water)
@@ -1266,7 +1285,13 @@ export default {
     }
 
 
-    const html = `<!doctype html>
+    // ========================================================
+    // HTML
+    // ========================================================
+
+    const html =
+`<!doctype html>
+
 <html lang="hu">
 
 <head>
@@ -1293,7 +1318,9 @@ export default {
   content="black"
 >
 
-<title>⚛️ PAKS MONITOR</title>
+<title>
+  ⚛️ PAKS MONITOR
+</title>
 
 <meta
   property="og:title"
@@ -1310,75 +1337,80 @@ export default {
 
 :root{
   --bg:#020811;
-  --panel:#07111c;
-  --panel2:#0b1724;
+  --panel:#06111c;
+  --panel2:#081724;
   --line:#173650;
   --white:#f5f7fa;
   --muted:#8998aa;
-  --green:#65df58;
-  --blue:#4baaff;
-  --orange:#ffad30;
-  --red:#ff5b61;
-  --purple:#c04dff;
+  --green:#61df54;
+  --blue:#47a9ff;
+  --orange:#ffab2d;
+  --red:#ff4f58;
+  --purple:#c04cff;
 }
+
 
 *{
   box-sizing:border-box;
 }
+
 
 html,
 body{
   margin:0;
   padding:0;
   width:100%;
-  min-height:100%;
+  height:100%;
   background:#000;
+  overflow:hidden;
   color:var(--white);
+
   font-family:
     -apple-system,
     BlinkMacSystemFont,
     "Segoe UI",
     Arial,
     sans-serif;
+
   -webkit-text-size-adjust:100%;
-  touch-action:
-    pan-x
-    pan-y
-    pinch-zoom;
 }
+
 
 body{
-  overflow:auto;
+  position:fixed;
+  inset:0;
 }
 
 
-/* ============================================================
-   VPAKS01:
-   FIX 1536 × 864 FEKVŐ MŰSZERFAL
-============================================================ */
-
-#vpaksViewport{
-  position:relative;
-  width:100%;
+#stage{
+  position:fixed;
+  inset:0;
+  overflow:hidden;
   background:#000;
-  overflow:visible;
 }
 
-#vpaksBoard{
+
+#board{
   position:absolute;
-  left:0;
-  top:0;
+
   width:1536px;
   height:864px;
-  transform-origin:top left;
+
+  left:0;
+  top:0;
+
+  transform-origin:
+    top left;
+
   background:
     radial-gradient(
       circle at 50% -10%,
-      #0d2139 0%,
-      #040b14 38%,
+      #0c1d31 0%,
+      #040b13 42%,
       #02060b 100%
     );
-  padding:12px;
+
+  padding:10px;
 }
 
 
@@ -1387,132 +1419,209 @@ body{
 ============================================================ */
 
 .header{
-  height:52px;
+  height:48px;
+
   display:grid;
+
   grid-template-columns:
-    390px
+    425px
     1fr
-    430px;
+    435px;
+
   gap:10px;
+
   align-items:center;
-  margin-bottom:8px;
+
+  margin-bottom:7px;
 }
+
 
 .brand{
   display:flex;
+
   align-items:center;
-  gap:10px;
+
+  gap:9px;
 }
 
+
 .brandName{
-  font-size:26px;
-  line-height:.9;
+  font-size:25px;
+
   font-weight:950;
+
   letter-spacing:-.7px;
 }
 
+
 .versionBadge{
   display:inline-block;
-  margin-left:8px;
+
+  margin-left:7px;
+
   padding:4px 7px;
+
   border-radius:5px;
-  background:#58136f;
-  color:#f3a8ff;
+
+  background:#601470;
+
+  color:#f1a0ff;
+
   font-size:9px;
-  vertical-align:middle;
 }
+
 
 .live{
   display:inline-flex;
+
   align-items:center;
+
   gap:6px;
-  margin-left:10px;
+
+  margin-left:9px;
+
   color:var(--green);
+
   font-size:11px;
+
   font-weight:900;
 }
+
 
 .liveDot{
   width:8px;
   height:8px;
+
   border-radius:50%;
+
   background:var(--green);
-  box-shadow:0 0 8px var(--green);
+
+  box-shadow:
+    0 0 9px
+    var(--green);
 }
+
 
 .clockWrap{
   text-align:center;
 }
 
+
 .clock{
-  display:inline-block;
   font-size:27px;
+
   font-weight:950;
 }
+
 
 .refresh{
   margin-left:10px;
-  color:#77889a;
+
+  color:#8190a0;
+
   font-size:9px;
 }
 
+
 .headerRight{
   display:grid;
+
   grid-template-columns:
     95px
     1fr;
+
   gap:7px;
-  align-items:center;
 }
 
+
 .signature{
-  height:35px;
+  height:34px;
+
   display:grid;
+
   place-items:center;
-  border:1px solid #4d1d64;
+
+  border:
+    1px solid #52206a;
+
   border-radius:6px;
+
   background:#100817;
-  color:#d24fff;
+
+  color:#d14eff;
+
   font-size:12px;
+
   font-weight:950;
+
   letter-spacing:1px;
 }
 
+
 .share{
-  height:35px;
+  height:34px;
+
   display:grid;
+
   grid-template-columns:
     1fr
-    63px;
+    64px;
+
   gap:4px;
+
   padding:4px;
-  border:1px solid #17334a;
+
+  border:
+    1px solid #17344c;
+
   border-radius:6px;
+
   background:#07111b;
 }
 
+
 .shareLink{
   min-width:0;
+
   display:flex;
+
   align-items:center;
-  padding:0 6px;
-  border:1px solid #9636c5;
+
+  padding:
+    0 6px;
+
+  border:
+    1px solid #9a38c9;
+
   border-radius:5px;
+
   background:#16091d;
-  color:#d24fff;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
+
+  color:#d34fff;
+
   text-decoration:none;
+
+  white-space:nowrap;
+
+  overflow:hidden;
+
+  text-overflow:ellipsis;
+
   font-size:7px;
 }
 
+
 .copy{
   border:0;
+
   border-radius:5px;
+
   background:#142130;
-  color:#fff;
+
+  color:white;
+
   font-size:7px;
+
   font-weight:900;
 }
 
@@ -1522,279 +1631,381 @@ body{
 ============================================================ */
 
 .topGrid{
+  height:230px;
+
   display:grid;
+
   grid-template-columns:
-    390px
+    405px
     535px
-    565px;
+    566px;
+
   gap:8px;
-  height:236px;
+
   margin-bottom:8px;
 }
 
+
 .panel{
-  border:1px solid var(--line);
+  position:relative;
+
+  overflow:hidden;
+
+  border:
+    1px solid var(--line);
+
   border-radius:7px;
+
   background:
     linear-gradient(
       145deg,
       #08141f,
       #06101a
     );
-  overflow:hidden;
 }
+
 
 .pad{
   padding:10px;
 }
 
+
 .sectionTitle{
-  color:#b3bfca;
+  color:#b5c0cb;
+
   font-size:10px;
+
   font-weight:900;
 }
 
-.bigRow{
-  display:flex;
-  align-items:flex-end;
-  justify-content:space-between;
-  gap:8px;
-  margin:5px 0 6px;
-}
 
 .bigPower{
+  margin-top:5px;
+
   color:var(--green);
+
   font-size:43px;
-  line-height:.93;
+
+  line-height:.95;
+
   font-weight:950;
-  letter-spacing:-1.6px;
 }
 
-.bigWater{
-  color:var(--blue);
-  font-size:43px;
-  line-height:.93;
-  font-weight:950;
-}
 
 .smallCaption{
-  padding-bottom:3px;
-  color:#718194;
+  position:absolute;
+
+  top:62px;
+
+  right:12px;
+
+  color:#738295;
+
   font-size:7px;
-}
-
-.status{
-  padding-bottom:3px;
-  font-size:8px;
-  font-weight:900;
-}
-
-.normal{
-  color:var(--green);
-}
-
-.warning{
-  color:var(--orange);
-}
-
-.danger{
-  color:var(--red);
 }
 
 
 /* ============================================================
-   TELJESÍTMÉNY GRAFIKON
+   GRAFIKON
 ============================================================ */
 
 .chartPanel{
+  margin-top:9px;
+
   padding:6px;
-  border:1px solid #132c41;
+
+  border:
+    1px solid #132c41;
+
   border-radius:7px;
+
   background:#050e18;
 }
 
+
 .chartHead{
+  height:18px;
+
   display:flex;
+
   align-items:center;
-  justify-content:space-between;
-  gap:4px;
-  margin-bottom:2px;
+
+  justify-content:
+    space-between;
 }
 
+
 .chartName{
-  color:#8495a9;
+  color:#8798aa;
+
   font-size:6px;
+
   font-weight:850;
 }
+
 
 .buttons{
   display:flex;
+
   gap:2px;
 }
 
+
 .period{
   border:0;
+
+  padding:
+    3px 5px;
+
   border-radius:999px;
-  padding:3px 5px;
+
   background:#111e2b;
+
   color:#8495a9;
+
   font-size:6px;
+
   font-weight:850;
 }
 
+
 .period.active{
+  color:white;
+
   background:#234763;
-  color:#fff;
 }
+
 
 .chartWrap{
   position:relative;
-  height:104px;
+
+  height:119px;
 }
+
 
 canvas{
   display:block;
+
   width:100%;
+
   height:100%;
 }
 
 
 /* ============================================================
-   4 BLOKK
+   BLOKKOK
 ============================================================ */
 
 .blockPanel{
   display:grid;
+
   grid-template-rows:
     1fr
-    25px;
-  height:100%;
+    26px;
 }
+
 
 .blocks{
   display:grid;
+
   grid-template-columns:
-    repeat(4,1fr);
+    repeat(
+      4,
+      1fr
+    );
 }
+
 
 .block{
   position:relative;
-  padding:16px 13px;
-  border-right:1px solid #173047;
+
+  padding:
+    17px 13px;
+
+  border-right:
+    1px solid #173047;
 }
+
 
 .block:last-child{
   border-right:0;
 }
 
+
 .blockName{
-  color:#9aa8b7;
+  color:#a0adba;
+
   font-size:9px;
+
   font-weight:850;
 }
 
+
 .blockValue{
-  margin-top:34px;
-  color:#f7f8fa;
+  margin-top:33px;
+
+  color:white;
+
   font-size:23px;
+
   font-weight:950;
 }
+
 
 .blockValue.on{
   color:var(--green);
 }
 
+
 .blockPct{
   position:absolute;
+
   left:13px;
-  bottom:38px;
-  color:#9aa8b7;
+
+  bottom:40px;
+
+  color:#8998a6;
+
   font-size:10px;
 }
+
 
 .blockPct.on{
   color:var(--green);
 }
 
-.blockBar{
+
+.blockTrack{
   position:absolute;
+
   left:13px;
   right:13px;
-  bottom:24px;
+  bottom:25px;
+
   height:2px;
+
   background:#354654;
 }
 
-.blockBarFill{
+
+.blockFill{
   height:100%;
+
   background:var(--green);
 }
 
+
 .source{
-  height:25px;
+  height:26px;
+
   display:flex;
+
   align-items:center;
-  padding:0 10px;
-  border-top:1px solid #173047;
+
+  padding:
+    0 10px;
+
+  border-top:
+    1px solid #173047;
+
   color:#728397;
+
   font-size:7px;
 }
 
 
 /* ============================================================
-   JOBB FELSŐ PANEL
+   JOBB FELSŐ
 ============================================================ */
 
 .metrics{
   display:grid;
+
   grid-template-columns:
     1fr
     1fr
     1.15fr;
+
   gap:5px;
 }
 
+
 .metric{
   padding:8px;
-  border:1px solid #10283b;
+
+  border:
+    1px solid #10283b;
+
   border-radius:6px;
+
   background:#0b1724;
 }
 
+
 .metricName{
   min-height:18px;
+
   color:#8292a4;
+
   font-size:7px;
 }
 
+
 .metricValue{
   margin-top:2px;
-  white-space:nowrap;
+
   font-size:19px;
+
   font-weight:950;
 }
+
+
+.blue{
+  color:var(--blue);
+}
+
+
+.green{
+  color:var(--green);
+}
+
 
 .orange{
   color:var(--orange);
 }
 
+
 .infoRule{
   margin-top:6px;
+
   padding:6px;
-  border:1px solid #684a18;
+
+  border:
+    1px solid #684a18;
+
   border-radius:6px;
+
   background:#171208;
+
   color:#ffb340;
+
   text-align:center;
+
   font-size:7px;
+
   font-weight:900;
 }
 
+
 .gauge{
   position:relative;
+
   height:9px;
+
   margin-top:9px;
+
   border-radius:999px;
+
   background:
     linear-gradient(
       90deg,
@@ -1807,234 +2018,243 @@ canvas{
     );
 }
 
+
 .marker{
   position:absolute;
+
   left:${markerPct}%;
+
   top:-5px;
+
   width:3px;
+
   height:19px;
+
   border-radius:2px;
-  background:#fff;
-  transform:translateX(-50%);
-  box-shadow:0 0 6px #fff;
+
+  background:white;
+
+  transform:
+    translateX(-50%);
+
+  box-shadow:
+    0 0 6px white;
 }
+
 
 .scale{
   display:grid;
+
   grid-template-columns:
     1fr
     1fr
     1fr;
+
   margin-top:3px;
+
   font-size:7px;
 }
+
 
 .scale span:nth-child(1){
   color:#748396;
 }
 
+
 .scale span:nth-child(2){
-  text-align:center;
   color:var(--orange);
+
+  text-align:center;
 }
 
+
 .scale span:nth-child(3){
-  text-align:right;
   color:var(--red);
+
+  text-align:right;
 }
+
 
 .distanceGrid{
   display:grid;
+
   grid-template-columns:
     1fr
     1fr;
+
   gap:5px;
+
   margin-top:6px;
 }
 
+
 .distance{
-  padding:5px 8px;
-  border:1px solid #10283b;
+  padding:
+    5px 8px;
+
+  border:
+    1px solid #10283b;
+
   border-radius:6px;
+
   background:#0b1724;
 }
 
+
 .distanceNumber{
   font-size:17px;
+
   font-weight:950;
 }
 
+
 .distanceText{
   color:#718194;
+
   font-size:7px;
 }
 
 
 /* ============================================================
-   NAGY VÍZRENDSZER
+   KÖZÉPSŐ NAGY ÁBRA
 ============================================================ */
 
 .hydroPanel{
   position:relative;
-  height:425px;
-  margin-bottom:8px;
-  border:1px solid var(--line);
-  border-radius:7px;
+
+  height:520px;
+
   overflow:hidden;
+
+  border:
+    1px solid var(--line);
+
+  border-radius:7px;
+
   background:#07121c;
 }
 
+
 .scene{
   position:relative;
-  width:100%;
-  height:325px;
+
+  height:390px;
+
   overflow:hidden;
+
   background:
     linear-gradient(
       180deg,
-      #143551 0%,
-      #102e47 48%,
-      #0b1e2d 100%
+      #153a59 0%,
+      #11314b 49%,
+      #0c2030 100%
     );
 }
 
 
-/* CÍMEK */
+/* ============================================================
+   FELSŐ CÍMEK
+============================================================ */
 
 .sceneTitle{
   position:absolute;
-  z-index:30;
-  top:10px;
-  color:#f2f4f7;
+
+  z-index:40;
+
+  top:12px;
+
+  color:#f3f5f7;
+
   text-align:center;
+
   font-size:11px;
+
   font-weight:900;
 }
 
+
 .tRiver{
-  left:15px;
-  width:230px;
+  left:0;
+
+  width:260px;
 }
+
 
 .tThreshold{
   left:250px;
-  width:430px;
+
+  width:440px;
 }
+
 
 .tHvcs{
   left:700px;
+
   width:235px;
 }
 
+
 .tPumps{
   left:950px;
+
   width:220px;
 }
 
+
 .tPlant{
-  right:10px;
+  right:15px;
+
   width:270px;
 }
 
 
-/* VÍZ */
+/* ============================================================
+   VÍZFELSZÍN
+============================================================ */
 
 .riverMain{
   position:absolute;
+
   z-index:2;
+
   left:0;
-  top:173px;
-  width:300px;
-  height:105px;
+
+  top:230px;
+
+  width:305px;
+
+  height:110px;
+
   background:
     linear-gradient(
-      #2694d6,
-      #116398
+      #2897d9,
+      #12659a
     );
-  border-top:3px solid #69cbff;
+
+  border-top:
+    3px solid #67caff;
 }
+
 
 .riseWater{
   position:absolute;
+
   z-index:3;
-  left:295px;
-  top:155px;
-  width:150px;
-  height:123px;
+
+  left:300px;
+
+  top:210px;
+
+  width:165px;
+
+  height:130px;
+
   background:
     linear-gradient(
-      #2c98d9,
-      #176ca2
+      #2c98da,
+      #176da3
     );
-  clip-path:
-    polygon(
-      0 15%,
-      100% 0,
-      100% 100%,
-      0 100%
-    );
-}
 
-.riseLine{
-  position:absolute;
-  z-index:6;
-  left:294px;
-  top:173px;
-  width:155px;
-  height:3px;
-  background:#6bceff;
-  transform:rotate(-6deg);
-  transform-origin:left center;
-}
-
-.upWater{
-  position:absolute;
-  z-index:2;
-  left:440px;
-  top:155px;
-  width:270px;
-  height:123px;
-  background:
-    linear-gradient(
-      #2b96d6,
-      #17699e
-    );
-  border-top:3px solid #68caff;
-}
-
-
-/* KÜSZÖB UTÁNI ALACSONYABB SZINT */
-
-.downWater{
-  position:absolute;
-  z-index:2;
-  left:700px;
-  top:181px;
-  width:185px;
-  height:97px;
-  background:
-    linear-gradient(
-      #278fce,
-      #17689b
-    );
-  border-top:3px solid #68caff;
-}
-
-
-/* HVCS SZINT */
-
-.hvcsRise{
-  position:absolute;
-  z-index:2;
-  left:880px;
-  top:163px;
-  width:100px;
-  height:115px;
-  background:
-    linear-gradient(
-      #2b95d4,
-      #17699d
-    );
   clip-path:
     polygon(
       0 16%,
@@ -2044,256 +2264,505 @@ canvas{
     );
 }
 
-.hvcsWater{
+
+.riseLine{
   position:absolute;
+
+  z-index:7;
+
+  left:300px;
+
+  top:230px;
+
+  width:170px;
+
+  height:3px;
+
+  background:#6dceff;
+
+  transform:
+    rotate(-7deg);
+
+  transform-origin:
+    left center;
+
+  box-shadow:
+    0 0 8px
+    rgba(
+      100,
+      200,
+      255,
+      .6
+    );
+}
+
+
+.upWater{
+  position:absolute;
+
   z-index:2;
-  left:975px;
-  right:0;
-  top:163px;
-  height:115px;
+
+  left:455px;
+
+  top:210px;
+
+  width:270px;
+
+  height:130px;
+
   background:
     linear-gradient(
-      #2b95d4,
+      #2b96d7,
+      #176aa0
+    );
+
+  border-top:
+    3px solid #68caff;
+}
+
+
+.downWater{
+  position:absolute;
+
+  z-index:2;
+
+  left:715px;
+
+  top:240px;
+
+  width:185px;
+
+  height:100px;
+
+  background:
+    linear-gradient(
+      #278fcf,
+      #17689b
+    );
+
+  border-top:
+    3px solid #68caff;
+}
+
+
+.hvcsRise{
+  position:absolute;
+
+  z-index:2;
+
+  left:895px;
+
+  top:222px;
+
+  width:105px;
+
+  height:118px;
+
+  background:
+    linear-gradient(
+      #2b95d5,
       #17699d
     );
-  border-top:3px solid #68caff;
+
+  clip-path:
+    polygon(
+      0 15%,
+      100% 0,
+      100% 100%,
+      0 100%
+    );
 }
+
+
+.hvcsWater{
+  position:absolute;
+
+  z-index:2;
+
+  left:995px;
+  right:0;
+
+  top:222px;
+
+  height:118px;
+
+  background:
+    linear-gradient(
+      #2b95d5,
+      #17699d
+    );
+
+  border-top:
+    3px solid #68caff;
+}
+
 
 .bed{
   position:absolute;
+
   z-index:1;
+
   left:0;
   right:0;
-  top:278px;
+
+  top:340px;
   bottom:0;
+
   background:
     linear-gradient(
-      #493a2d,
+      #49392c,
       #2b231d
     );
-  border-top:2px solid #5e4a3a;
+
+  border-top:
+    2px solid #604c3c;
 }
 
 
-/* MÉRÉSI KÁRTYÁK */
+/* ============================================================
+   MÉRÉSI KÁRTYÁK
+============================================================ */
 
 .reading{
   position:absolute;
-  z-index:30;
-  width:125px;
+
+  z-index:50;
+
+  width:130px;
+
   padding:8px;
-  border:1px solid #1a3d59;
+
+  border:
+    1px solid #1a3d59;
+
   border-radius:6px;
-  background:rgba(3,14,24,.93);
+
+  background:
+    rgba(
+      3,
+      14,
+      24,
+      .94
+    );
+
   text-align:center;
 }
+
 
 .readLab{
   color:#91a1b2;
+
   font-size:7px;
+
   font-weight:850;
 }
 
+
 .readVal{
   margin-top:4px;
-  font-size:19px;
+
+  font-size:20px;
+
   line-height:1;
+
   font-weight:950;
 }
+
 
 .readSub{
   margin-top:4px;
+
   color:#d0d7de;
+
   font-size:8px;
 }
+
 
 .readTime{
   margin-top:4px;
+
   color:#6f8192;
+
   font-size:7px;
 }
 
+
 .rRiver{
-  left:42px;
-  top:45px;
+  left:44px;
+
+  top:52px;
 }
 
+
 .rUp{
-  left:295px;
-  top:44px;
+  left:300px;
+
+  top:52px;
 }
+
 
 .rDown{
   left:660px;
-  top:44px;
+
+  top:52px;
 }
+
 
 .rHvcs{
-  left:830px;
-  top:44px;
+  left:835px;
+
+  top:52px;
 }
 
 
-/* DUZZASZTÁS PANEL */
+/* ============================================================
+   DUZZASZTÁS KÁRTYA
+============================================================ */
 
 .upliftCard{
   position:absolute;
-  z-index:35;
-  left:405px;
-  top:40px;
-  width:210px;
-  height:135px;
+
+  z-index:60;
+
+  left:410px;
+
+  top:45px;
+
+  width:215px;
+
+  height:150px;
+
   padding:9px;
-  border:1px solid #347941;
+
+  border:
+    1px solid #347941;
+
   border-radius:6px;
-  background:rgba(5,25,10,.94);
+
+  background:
+    rgba(
+      4,
+      24,
+      10,
+      .96
+    );
 }
 
+
 .upliftLabel{
-  color:#86b68c;
+  color:#91bd96;
+
   text-align:center;
+
   font-size:8px;
+
   font-weight:900;
 }
 
+
 .upliftValue{
-  margin-top:5px;
+  margin-top:6px;
+
   color:var(--green);
+
   text-align:center;
-  font-size:25px;
+
+  font-size:27px;
+
+  line-height:1;
+
   font-weight:950;
 }
 
+
 .upliftSub{
-  margin-top:2px;
-  color:#8ab990;
+  margin-top:4px;
+
+  color:#8bb490;
+
   text-align:center;
+
   font-size:8px;
 }
 
+
 .miniGraph{
   position:absolute;
+
   left:10px;
   right:10px;
-  bottom:12px;
-  height:55px;
-}
+  bottom:10px;
 
-.miniGrid{
-  position:absolute;
-  inset:0;
+  height:66px;
+
+  overflow:hidden;
+
+  border-top:
+    1px solid rgba(70,130,75,.18);
+
   background:
     repeating-linear-gradient(
       0deg,
-      transparent 0 13px,
-      rgba(75,150,90,.18) 13px 14px
+      transparent 0 15px,
+      rgba(75,150,90,.12) 15px 16px
     );
 }
+
 
 .miniLine{
   position:absolute;
-  left:10px;
-  right:10px;
-  top:32px;
+
+  left:8px;
+  right:12px;
+
+  top:40px;
+
   height:2px;
+
   background:var(--green);
-  transform:rotate(-6deg);
-  transform-origin:left center;
+
+  transform:
+    rotate(-7deg);
+
+  transform-origin:
+    left center;
 }
+
 
 .miniDot{
   position:absolute;
-  right:7px;
-  top:11px;
-  width:7px;
-  height:7px;
+
+  right:8px;
+
+  top:14px;
+
+  width:8px;
+  height:8px;
+
   border-radius:50%;
+
   background:var(--green);
-  box-shadow:0 0 7px var(--green);
+
+  box-shadow:
+    0 0 8px
+    var(--green);
 }
 
 
-/* FENÉKKÜSZÖB */
+/* ============================================================
+   FENÉKKÜSZÖB
+============================================================ */
 
 .wallL{
   position:absolute;
-  z-index:9;
-  left:420px;
-  top:148px;
+
+  z-index:12;
+
+  left:430px;
+
+  top:206px;
+
   width:18px;
-  height:137px;
+
+  height:140px;
+
   background:
     linear-gradient(
       90deg,
-      #9ca7ad,
-      #555f66
+      #a0a9af,
+      #576168
     );
 }
+
 
 .wallR{
   position:absolute;
-  z-index:9;
-  left:670px;
-  top:148px;
+
+  z-index:12;
+
+  left:680px;
+
+  top:206px;
+
   width:18px;
-  height:137px;
+
+  height:140px;
+
   background:
     linear-gradient(
       90deg,
-      #9ca7ad,
-      #555f66
+      #a0a9af,
+      #576168
     );
 }
 
+
 .thresholdRock{
   position:absolute;
-  z-index:8;
-  left:445px;
-  top:224px;
+
+  z-index:11;
+
+  left:455px;
+
+  top:276px;
+
   width:220px;
-  height:65px;
+
+  height:70px;
+
   border-radius:
     55% 55% 5px 5px;
+
   background:
     radial-gradient(
-      circle at 15% 60%,
-      #8c9093 0 16px,
-      transparent 17px
-    ),
-    radial-gradient(
-      circle at 34% 30%,
-      #717578 0 18px,
-      transparent 19px
-    ),
-    radial-gradient(
-      circle at 51% 64%,
-      #969a9c 0 17px,
+      circle at 15% 63%,
+      #8c9093 0 17px,
       transparent 18px
     ),
     radial-gradient(
-      circle at 70% 33%,
-      #676b6e 0 20px,
-      transparent 21px
+      circle at 34% 30%,
+      #74787b 0 19px,
+      transparent 20px
+    ),
+    radial-gradient(
+      circle at 51% 66%,
+      #979a9c 0 18px,
+      transparent 19px
+    ),
+    radial-gradient(
+      circle at 70% 30%,
+      #686c6f 0 21px,
+      transparent 22px
     ),
     radial-gradient(
       circle at 87% 67%,
-      #8b8f91 0 18px,
+      #8d9092 0 18px,
       transparent 19px
     ),
     #45494c;
 }
 
 
-/* SZŰRŐRÁCS */
+/* ============================================================
+   RÁCS
+============================================================ */
 
 .rack{
   position:absolute;
-  z-index:10;
-  left:790px;
-  top:183px;
-  width:36px;
-  height:95px;
-  border:3px solid #87949e;
+
+  z-index:15;
+
+  left:795px;
+
+  top:243px;
+
+  width:37px;
+
+  height:97px;
+
+  border:
+    3px solid #87949e;
+
   background:
     repeating-linear-gradient(
       90deg,
@@ -2302,77 +2771,123 @@ canvas{
     );
 }
 
+
 .rackLabel{
   position:absolute;
-  z-index:15;
+
+  z-index:20;
+
   left:760px;
-  top:152px;
-  width:100px;
+
+  top:214px;
+
+  width:110px;
+
   color:#cad3da;
+
   text-align:center;
+
   font-size:8px;
+
   font-weight:850;
 }
 
 
-/* SZIVATTYÚK */
+/* ============================================================
+   SZIVATTYÚK
+============================================================ */
 
 .pump{
   position:absolute;
-  z-index:12;
-  top:158px;
+
+  z-index:20;
+
+  top:214px;
+
   width:35px;
-  height:120px;
-  border-left:10px solid #8e99a2;
+
+  height:126px;
+
+  border-left:
+    10px solid #8e99a2;
 }
+
 
 .pump:before{
   content:"";
+
   position:absolute;
+
   left:-17px;
   top:-8px;
+
   width:32px;
   height:22px;
+
   border-radius:6px;
+
   background:#949ea6;
 }
 
+
 .pump:after{
   content:"";
+
   position:absolute;
+
   left:-18px;
   bottom:-8px;
+
   width:33px;
   height:33px;
-  border:3px solid #303940;
+
+  border:
+    3px solid #303940;
+
   border-radius:50%;
+
   background:#69747d;
 }
 
+
 .p1{
-  left:940px;
+  left:945px;
 }
+
 
 .p2{
-  left:1010px;
+  left:1016px;
 }
+
 
 .p3{
-  left:1080px;
+  left:1087px;
 }
 
 
-/* ERŐMŰ */
+/* ============================================================
+   ERŐMŰ
+============================================================ */
 
 .plant{
   position:absolute;
-  z-index:12;
-  right:35px;
-  top:113px;
+
+  z-index:22;
+
+  right:37px;
+
+  top:155px;
+
   width:190px;
-  height:165px;
-  border:1px solid #87929a;
-  border-radius:7px 7px 3px 3px;
+
+  height:185px;
+
+  border:
+    1px solid #87929a;
+
+  border-radius:
+    7px 7px 3px 3px;
+
   background:
     linear-gradient(
       145deg,
@@ -2381,24 +2896,41 @@ canvas{
     );
 }
 
+
 .plant:before{
   content:"";
+
   position:absolute;
+
   left:42px;
-  top:-58px;
+
+  top:-60px;
+
   width:105px;
-  height:62px;
-  border:1px solid #929ba2;
-  border-radius:50% 50% 0 0;
+
+  height:64px;
+
+  border:
+    1px solid #929ba2;
+
+  border-radius:
+    50% 50% 0 0;
+
   background:#59636b;
 }
 
+
 .chimney{
   position:absolute;
+
   right:14px;
-  top:-65px;
+
+  top:-66px;
+
   width:20px;
-  height:70px;
+
+  height:72px;
+
   background:
     repeating-linear-gradient(
       180deg,
@@ -2407,187 +2939,276 @@ canvas{
     );
 }
 
+
 .plantName{
-  margin-top:45px;
+  margin-top:55px;
+
   text-align:center;
+
   font-size:13px;
+
   font-weight:950;
 }
+
 
 .plantMw{
-  margin-top:18px;
+  margin-top:24px;
+
   color:var(--green);
+
   text-align:center;
-  font-size:28px;
-  font-weight:950;
-}
 
+  font-size:29px;
 
-/* SZIVATTYÚ SZINT PANEL */
-
-.hvcsPanel{
-  position:absolute;
-  z-index:35;
-  right:25px;
-  bottom:12px;
-  width:240px;
-  padding:11px;
-  border:1px solid #26643a;
-  border-radius:6px;
-  background:rgba(4,19,11,.94);
-}
-
-.hvcsPanelTitle{
-  color:#b9c4cc;
-  font-size:9px;
-  font-weight:900;
-}
-
-.hvcsPanelValue{
-  margin-top:5px;
-  color:var(--blue);
-  font-size:23px;
-  font-weight:950;
-}
-
-.hvcsPanelSub{
-  margin-top:6px;
-  color:#8fa0ad;
-  font-size:8px;
-}
-
-
-/* FLOW */
-
-.flowArrow{
-  position:absolute;
-  z-index:15;
-  color:#5dbbfa;
-  font-size:27px;
-  font-weight:950;
-}
-
-.fa1{
-  left:190px;
-  top:200px;
-}
-
-.fa2{
-  left:745px;
-  top:207px;
-}
-
-.fa3{
-  left:875px;
-  top:205px;
-}
-
-.fa4{
-  left:920px;
-  top:205px;
-}
-
-
-/* LEÁLLÁSI SZINT */
-
-.shutdownLine{
-  position:absolute;
-  z-index:18;
-  left:220px;
-  right:260px;
-  top:260px;
-  border-top:
-    2px dashed
-    var(--red);
-}
-
-.shutdownText{
-  position:absolute;
-  z-index:20;
-  left:250px;
-  top:264px;
-  color:var(--red);
-  font-size:8px;
   font-weight:950;
 }
 
 
 /* ============================================================
-   ALSÓ ADATKÁRTYÁK
+   HVCS MÉRÉS PANEL
+============================================================ */
+
+.hvcsPanel{
+  position:absolute;
+
+  z-index:65;
+
+  right:28px;
+
+  bottom:12px;
+
+  width:245px;
+
+  padding:11px;
+
+  border:
+    1px solid #28653a;
+
+  border-radius:6px;
+
+  background:
+    rgba(
+      4,
+      19,
+      11,
+      .95
+    );
+}
+
+
+.hvcsPanelTitle{
+  color:#b9c4cc;
+
+  font-size:9px;
+
+  font-weight:900;
+}
+
+
+.hvcsPanelValue{
+  margin-top:5px;
+
+  color:var(--blue);
+
+  font-size:23px;
+
+  font-weight:950;
+}
+
+
+.hvcsPanelSub{
+  margin-top:6px;
+
+  color:#8fa0ad;
+
+  font-size:8px;
+}
+
+
+/* ============================================================
+   NYILAK
+============================================================ */
+
+.flowArrow{
+  position:absolute;
+
+  z-index:25;
+
+  color:#5dbbfa;
+
+  font-size:28px;
+
+  font-weight:950;
+}
+
+
+.fa1{
+  left:195px;
+
+  top:260px;
+}
+
+
+.fa2{
+  left:745px;
+
+  top:268px;
+}
+
+
+.fa3{
+  left:884px;
+
+  top:265px;
+}
+
+
+.fa4{
+  left:927px;
+
+  top:265px;
+}
+
+
+/* ============================================================
+   CSAK A PAKSI FŐÁG KÜSZÖB REFERENCIA
+============================================================ */
+
+.mainThresholdLine{
+  position:absolute;
+
+  z-index:30;
+
+  left:210px;
+
+  width:210px;
+
+  top:322px;
+
+  border-top:
+    2px dashed var(--red);
+}
+
+
+.mainThresholdLabel{
+  position:absolute;
+
+  z-index:31;
+
+  left:252px;
+
+  top:326px;
+
+  color:var(--red);
+
+  font-size:8px;
+
+  font-weight:950;
+}
+
+
+/* ============================================================
+   ALSÓ ADATSOR
 ============================================================ */
 
 .bottomRail{
+  height:104px;
+
   display:grid;
+
   grid-template-columns:
-    1.1fr
+    1.08fr
     1fr
     1fr
-    1.15fr
+    1.13fr
     1fr
     1.2fr
-    1.15fr;
-  height:90px;
-  border-top:1px solid #17334a;
+    1.12fr;
+
+  border-top:
+    1px solid #17334a;
+
   background:#05101a;
 }
 
+
 .bottomCard{
   position:relative;
-  padding:9px;
-  border-right:1px solid #17334a;
+
+  padding:10px;
+
+  border-right:
+    1px solid #17334a;
+
   text-align:center;
 }
+
 
 .bottomCard:last-child{
   border-right:0;
 }
 
+
 .bottomCard.highlight{
-  border:1px solid #6b621d;
+  border:
+    1px solid #72661c;
+
   background:#08150b;
 }
 
+
 .bottomLabel{
   color:#8c9bab;
+
   font-size:8px;
+
   font-weight:850;
 }
 
+
 .bottomValue{
   margin-top:8px;
+
   font-size:21px;
+
   font-weight:950;
 }
 
+
 .bottomSub{
   margin-top:5px;
+
   color:#748698;
+
   font-size:7px;
 }
 
-.bottomDanger{
-  margin-top:5px;
-  color:var(--red);
-  font-size:7px;
-  font-weight:900;
-}
 
 .bottomGraph{
   position:absolute;
-  left:15px;
-  right:15px;
+
+  left:16px;
+  right:16px;
   bottom:18px;
+
   height:30px;
 }
 
+
 .bottomGraphLine{
   position:absolute;
+
   left:0;
   right:0;
-  top:15px;
+
+  top:14px;
+
   height:2px;
+
   background:var(--green);
-  transform:rotate(4deg);
+
+  transform:
+    rotate(4deg);
 }
 
 
@@ -2596,27 +3217,65 @@ canvas{
 ============================================================ */
 
 .footer{
-  height:34px;
+  position:absolute;
+
+  left:10px;
+  right:10px;
+  bottom:10px;
+
+  height:32px;
+
   display:grid;
+
   grid-template-columns:
     1fr
     1fr
     1fr;
+
   align-items:center;
-  padding:0 10px;
-  border:1px solid #173650;
+
+  padding:
+    0 10px;
+
+  border:
+    1px solid #173650;
+
   border-radius:5px;
+
   background:#05101a;
+
   color:#6d7f92;
+
   font-size:7px;
 }
+
 
 .footer div:nth-child(2){
   text-align:center;
 }
 
+
 .footer div:nth-child(3){
   text-align:right;
+}
+
+
+/* ============================================================
+   IRÁNY NYILAK
+============================================================ */
+
+.dir.up{
+  color:var(--green);
+}
+
+
+.dir.down{
+  color:var(--orange);
+}
+
+
+.dir.flat{
+  color:#d0d8df;
 }
 
 
@@ -2626,26 +3285,44 @@ canvas{
 
 .toast{
   position:fixed;
+
   left:50%;
+
   bottom:20px;
-  z-index:9999;
+
+  z-index:999999;
+
   transform:
     translateX(-50%)
     translateY(10px);
+
   opacity:0;
-  padding:8px 14px;
-  border:1px solid #337b40;
+
+  padding:
+    8px 14px;
+
+  border:
+    1px solid #337b40;
+
   border-radius:999px;
+
   background:#102819;
+
   color:#79e870;
+
   font-size:11px;
+
   font-weight:850;
+
   transition:.2s;
+
   pointer-events:none;
 }
 
+
 .toast.show{
   opacity:1;
+
   transform:
     translateX(-50%)
     translateY(0);
@@ -2659,10 +3336,9 @@ canvas{
 <body>
 
 
-<div id="vpaksViewport">
+<div id="stage">
 
-
-<div id="vpaksBoard">
+<div id="board">
 
 
 <!-- =========================================================
@@ -2675,16 +3351,20 @@ canvas{
 <div class="brand">
 
 <div class="brandName">
-  PAKS MONITOR
 
-  <span class="versionBadge">
-    VP01
-  </span>
+PAKS MONITOR
 
-  <span class="live">
-    <span class="liveDot"></span>
-    ÉLŐ ADATOK
-  </span>
+<span class="versionBadge">
+  VP02
+</span>
+
+<span class="live">
+
+<span class="liveDot"></span>
+
+ÉLŐ ADATOK
+
+</span>
 
 </div>
 
@@ -2701,8 +3381,11 @@ canvas{
 </span>
 
 <span class="refresh">
-  FRISSÍTVE:
-  ${shortTime(oahTime)}
+
+FRISSÍTVE:
+
+${shortTime(oahTime)}
+
 </span>
 
 </div>
@@ -2762,16 +3445,13 @@ canvas{
 </div>
 
 
-<div class="bigRow">
-
 <div class="bigPower">
   ${totalText}
 </div>
 
+
 <div class="smallCaption">
   ÖSSZTELJESÍTMÉNY
-</div>
-
 </div>
 
 
@@ -2780,12 +3460,14 @@ canvas{
 
 <div class="chartHead">
 
+
 <div class="chartName">
   TELJESÍTMÉNY VÁLTOZÁSA • MW
 </div>
 
 
 <div class="buttons">
+
 
 <button
   class="period"
@@ -2794,12 +3476,14 @@ canvas{
   6 ÓRA
 </button>
 
+
 <button
   class="period active"
   data-hours="24"
 >
   24 ÓRA
 </button>
+
 
 <button
   class="period"
@@ -2808,7 +3492,9 @@ canvas{
   10 NAP
 </button>
 
+
 </div>
+
 
 </div>
 
@@ -2832,7 +3518,7 @@ canvas{
 
 
 
-<!-- 4 BLOKK -->
+<!-- BLOKKOK -->
 
 <div class="panel blockPanel">
 
@@ -2856,7 +3542,8 @@ ${blocks.map(
             Math.min(
               100,
               Math.round(
-                n / 500 * 100
+                n / 500 *
+                100
               )
             )
           )
@@ -2883,7 +3570,8 @@ ${blocks.map(
 ${
   value === "—"
     ? "—"
-    : value + " MW"
+    : value +
+      " MW"
 }
 
 </div>
@@ -2900,15 +3588,15 @@ ${
 </div>
 
 
-<div class="blockBar">
+<div class="blockTrack">
 
 <div
-  class="blockBarFill"
+  class="blockFill"
   style="
     width:${pct}%;
     background:${
       n > 0
-        ? "#65df58"
+        ? "#61df54"
         : "#354654"
     };
   "
@@ -2930,20 +3618,20 @@ ${
 
 <div class="source">
 
-OAH •
+OAH
 
-${shortTime(oahTime)} •
+• ${shortTime(oahTime)}
 
-${oahStatus}
-
-</div>
-
+• ${oahStatus}
 
 </div>
 
 
+</div>
 
-<!-- JOBB PANEL -->
+
+
+<!-- JOBB FELSŐ -->
 
 <div class="panel">
 
@@ -3010,10 +3698,12 @@ NINCS FRISS HITELES ADAT
 
 <div class="gauge">
 
+
 <div
   class="marker"
   style="left:${markerPct}%"
 ></div>
+
 
 </div>
 
@@ -3054,7 +3744,7 @@ ${
 </div>
 
 <div class="distanceText">
-  LEÁLLÁSI KÜSZÖBIG
+  −134 CM KÜSZÖBIG
 </div>
 
 </div>
@@ -3076,7 +3766,7 @@ ${
 </div>
 
 <div class="distanceText">
-  BIZTONSÁGI HATÁRIG
+  −144 CM HATÁRIG
 </div>
 
 </div>
@@ -3096,7 +3786,7 @@ ${
 
 
 <!-- =========================================================
-     NAGY VÍZRENDSZER
+     NAGY ÁBRA
 ========================================================== -->
 
 <div class="hydroPanel">
@@ -3169,7 +3859,7 @@ ${
 <span
   class="dir ${riverDir.cls}"
 >
-${riverDir.symbol}
+  ${riverDir.symbol}
 </span>
 
 </div>
@@ -3178,7 +3868,9 @@ ${riverDir.symbol}
 
 ${
   Number.isFinite(riverMbf)
-    ? fmt2(riverMbf) +
+    ? fmt2(
+        riverMbf
+      ) +
       " mBf"
     : "—"
 }
@@ -3186,8 +3878,11 @@ ${
 </div>
 
 <div class="readTime">
-  MÉRÉS:
-  ${shortTime(riverTime)}
+
+MÉRÉS:
+
+${shortTime(riverTime)}
+
 </div>
 
 </div>
@@ -3200,7 +3895,7 @@ ${
   FELVÍZ
 </div>
 
-<div class="readVal green">
+<div class="readVal blue">
 
 ${
   Number.isFinite(
@@ -3214,7 +3909,7 @@ ${
 <span
   class="dir ${upDir.cls}"
 >
-${upDir.symbol}
+  ${upDir.symbol}
 </span>
 
 </div>
@@ -3235,10 +3930,13 @@ ${
 </div>
 
 <div class="readTime">
-  MÉRÉS:
-  ${shortTime(
-    thresholdUpTime
-  )}
+
+MÉRÉS:
+
+${shortTime(
+  thresholdUpTime
+)}
+
 </div>
 
 </div>
@@ -3254,7 +3952,9 @@ ${
 <div class="upliftValue">
 
 ${
-  Number.isFinite(uplift)
+  Number.isFinite(
+    uplift
+  )
     ? (
         uplift >= 0
           ? "+"
@@ -3271,15 +3971,15 @@ ${
   FELVÍZ − ALVÍZ
 </div>
 
-<div class="miniGraph">
 
-<div class="miniGrid"></div>
+<div class="miniGraph">
 
 <div class="miniLine"></div>
 
 <div class="miniDot"></div>
 
 </div>
+
 
 </div>
 
@@ -3305,7 +4005,7 @@ ${
 <span
   class="dir ${downDir.cls}"
 >
-${downDir.symbol}
+  ${downDir.symbol}
 </span>
 
 </div>
@@ -3326,10 +4026,13 @@ ${
 </div>
 
 <div class="readTime">
-  MÉRÉS:
-  ${shortTime(
-    thresholdDownTime
-  )}
+
+MÉRÉS:
+
+${shortTime(
+  thresholdDownTime
+)}
+
 </div>
 
 </div>
@@ -3354,7 +4057,7 @@ ${
 <span
   class="dir ${hvcsDir.cls}"
 >
-${hvcsDir.symbol}
+  ${hvcsDir.symbol}
 </span>
 
 </div>
@@ -3362,7 +4065,9 @@ ${hvcsDir.symbol}
 <div class="readSub">
 
 ${
-  Number.isFinite(hvcsMbf)
+  Number.isFinite(
+    hvcsMbf
+  )
     ? fmt2(
         hvcsMbf
       ) +
@@ -3373,8 +4078,11 @@ ${
 </div>
 
 <div class="readTime">
-  MÉRÉS:
-  ${shortTime(hvcsTime)}
+
+MÉRÉS:
+
+${shortTime(hvcsTime)}
+
 </div>
 
 </div>
@@ -3430,18 +4138,20 @@ ${
 
 
 
-<!-- ÖBLÖZET PANEL -->
+<!-- HVCS -->
 
 <div class="hvcsPanel">
 
 <div class="hvcsPanelTitle">
-  SZIVATTYÚ SZINT • ÖBLÖZET
+  ÖBLÖZET VÍZSZINT
 </div>
 
 <div class="hvcsPanelValue">
 
 ${
-  Number.isFinite(hvcsMbf)
+  Number.isFinite(
+    hvcsMbf
+  )
     ? fmt2(
         hvcsMbf
       ) +
@@ -3452,7 +4162,7 @@ ${
 </div>
 
 <div class="hvcsPanelSub">
-  VÍZÜGY ÉLŐ MÉRÉSI ADAT
+  VÍZÜGY • HIDEGVÍZ-CSATORNA MÉRÉSI ADAT
 </div>
 
 </div>
@@ -3479,12 +4189,14 @@ ${
 
 
 
-<!-- LEÁLLÁSI SZINT -->
+<!-- FONTOS:
+     A -144 CM CSAK A PAKSI FŐÁG REFERENCIÁJA
+-->
 
-<div class="shutdownLine"></div>
+<div class="mainThresholdLine"></div>
 
-<div class="shutdownText">
-  −144 cm • LEÁLLÁSI SZINT
+<div class="mainThresholdLabel">
+  PAKS FŐÁG • −144 cm
 </div>
 
 
@@ -3519,8 +4231,12 @@ ${
 <div class="bottomSub">
 
 ${
-  Number.isFinite(riverMbf)
-    ? fmt2(riverMbf) +
+  Number.isFinite(
+    riverMbf
+  )
+    ? fmt2(
+        riverMbf
+      ) +
       " mBf"
     : "—"
 }
@@ -3581,10 +4297,6 @@ ${
   )}
 </div>
 
-<div class="bottomDanger">
-  −144 cm LEÁLLÁSI SZINT
-</div>
-
 </div>
 
 
@@ -3630,10 +4342,6 @@ ${
   )}
 </div>
 
-<div class="bottomDanger">
-  −144 cm LEÁLLÁSI SZINT
-</div>
-
 </div>
 
 
@@ -3647,7 +4355,9 @@ ${
 <div class="bottomValue green">
 
 ${
-  Number.isFinite(uplift)
+  Number.isFinite(
+    uplift
+  )
     ? (
         uplift >= 0
           ? "+"
@@ -3688,8 +4398,12 @@ ${
 <div class="bottomSub">
 
 ${
-  Number.isFinite(hvcsMbf)
-    ? fmt2(hvcsMbf) +
+  Number.isFinite(
+    hvcsMbf
+  )
+    ? fmt2(
+        hvcsMbf
+      ) +
       " mBf"
     : "—"
 }
@@ -3699,10 +4413,6 @@ ${
 <div class="bottomSub">
   MÉRÉS:
   ${shortTime(hvcsTime)}
-</div>
-
-<div class="bottomDanger">
-  −144 cm LEÁLLÁSI SZINT
 </div>
 
 </div>
@@ -3712,14 +4422,18 @@ ${
 <div class="bottomCard">
 
 <div class="bottomLabel">
-  SZIVATTYÚ SZINT (ÖBLÖZET)
+  ÖBLÖZET VÍZSZINT
 </div>
 
 <div class="bottomValue blue">
 
 ${
-  Number.isFinite(hvcsMbf)
-    ? fmt2(hvcsMbf) +
+  Number.isFinite(
+    hvcsMbf
+  )
+    ? fmt2(
+        hvcsMbf
+      ) +
       " mBf"
     : "—"
 }
@@ -3727,12 +4441,11 @@ ${
 </div>
 
 <div class="bottomSub">
-  MÉRÉS:
-  ${shortTime(hvcsTime)}
+  HVCS MÉRÉSI ADAT
 </div>
 
-<div class="bottomDanger">
-  ÉLŐ VÍZÜGY MÉRÉS
+<div class="bottomSub">
+  ${shortTime(hvcsTime)}
 </div>
 
 </div>
@@ -3787,9 +4500,7 @@ ${
 
 </div>
 
-
 </div>
-
 
 
 <div
@@ -3803,16 +4514,15 @@ ${
 
 <script>
 
-
 const PUBLIC_URL =
   "${PUBLIC_URL}";
 
 
-const BOARD_WIDTH =
+const BOARD_W =
   1536;
 
 
-const BOARD_HEIGHT =
+const BOARD_H =
   864;
 
 
@@ -3825,68 +4535,120 @@ let historyCache =
 
 
 // ============================================================
-// TELJES FEKVŐ KÉP AUTOMATIKUS MÉRETEZÉSE
+// LEGFONTOSABB JAVÍTÁS
+//
+// NEM CSAK SZÉLESSÉGBŐL,
+// HANEM SZÉLESSÉGBŐL ÉS MAGASSÁGBÓL IS SZÁMOL.
+//
+// scale = min(
+//   kijelző szélessége / 1536,
+//   kijelző magassága / 864
+// )
+//
+// EZÉRT NEM CSÚSZHAT FEL.
 // ============================================================
+
+function getViewportSize() {
+
+  if (
+    window.visualViewport
+  ) {
+
+    return {
+      width:
+        window.visualViewport
+          .width,
+
+      height:
+        window.visualViewport
+          .height
+    };
+  }
+
+
+  return {
+    width:
+      window.innerWidth,
+
+    height:
+      window.innerHeight
+  };
+}
+
 
 function fitBoard() {
 
-  const viewport =
-    document.getElementById(
-      "vpaksViewport"
-    );
-
-
   const board =
     document.getElementById(
-      "vpaksBoard"
+      "board"
     );
 
 
-  if (
-    !viewport ||
-    !board
-  ) {
+  if (!board) {
     return;
   }
 
 
-  /*
-    A teljes 1536 px széles fekvő dashboard
-    mindig ráfér a TELEFON SZÉLESSÉGÉRE.
+  const viewport =
+    getViewportSize();
 
-    Álló telefonnál:
-    teljes fekvő kép kicsiben.
 
-    Fekvő telefonnál:
-    automatikusan sokkal nagyobb.
+  const scaleX =
+    viewport.width /
+    BOARD_W;
 
-    A böngésző pinch zoomja nincs tiltva.
-  */
 
-  const availableWidth =
-    window.innerWidth;
+  const scaleY =
+    viewport.height /
+    BOARD_H;
 
 
   const scale =
     Math.min(
-      1,
-      availableWidth /
-      BOARD_WIDTH
+      scaleX,
+      scaleY
     );
 
 
-  const scaledWidth =
-    BOARD_WIDTH *
+  const renderedWidth =
+    BOARD_W *
     scale;
 
 
-  const scaledHeight =
-    BOARD_HEIGHT *
+  const renderedHeight =
+    BOARD_H *
     scale;
 
 
-  viewport.style.height =
-    scaledHeight +
+  const left =
+    (
+      viewport.width -
+      renderedWidth
+    ) /
+    2;
+
+
+  const top =
+    (
+      viewport.height -
+      renderedHeight
+    ) /
+    2;
+
+
+  board.style.left =
+    Math.max(
+      0,
+      left
+    ) +
+    "px";
+
+
+  board.style.top =
+    Math.max(
+      0,
+      top
+    ) +
     "px";
 
 
@@ -3894,43 +4656,27 @@ function fitBoard() {
     "scale(" +
     scale +
     ")";
-
-
-  board.style.left =
-    Math.max(
-      0,
-      (
-        availableWidth -
-        scaledWidth
-      ) /
-      2
-    ) +
-    "px";
-
-
-  board.style.top =
-    "0px";
 }
 
 
 // ============================================================
-// BUDAPEST ÓRA
+// ÓRA
 // ============================================================
 
 function updateClock() {
 
-  const element =
+  const clock =
     document.getElementById(
       "clock"
     );
 
 
-  if (!element) {
+  if (!clock) {
     return;
   }
 
 
-  element.textContent =
+  clock.textContent =
     new Date()
       .toLocaleTimeString(
         "hu-HU",
@@ -4062,26 +4808,29 @@ async function drawPowerChart(
         row => ({
           x:
             Number(row.ts),
+
           y:
             Number(row.power)
         })
       )
       .filter(
         point =>
-          Number.isFinite(point.x) &&
-          Number.isFinite(point.y)
+          Number.isFinite(
+            point.x
+          ) &&
+          Number.isFinite(
+            point.y
+          )
       )
       .sort(
-        (a, b) =>
-          a.x - b.x
+        (
+          a,
+          b
+        ) =>
+          a.x -
+          b.x
       );
 
-
-  /*
-    clientWidth / clientHeight:
-    az eredeti 1536-as dashboard mérete,
-    nem a CSS-sel lekicsinyített méret.
-  */
 
   const W =
     canvas.clientWidth;
@@ -4135,20 +4884,20 @@ async function drawPowerChart(
 
 
   const pad = {
-    left: 38,
-    right: 8,
+    left: 40,
+    right: 10,
     top: 7,
-    bottom: 19
+    bottom: 20
   };
 
 
-  const cw =
+  const chartW =
     W -
     pad.left -
     pad.right;
 
 
-  const ch =
+  const chartH =
     H -
     pad.top -
     pad.bottom;
@@ -4158,7 +4907,8 @@ async function drawPowerChart(
     "rgba(115,145,170,.18)";
 
 
-  ctx.lineWidth = 1;
+  ctx.lineWidth =
+    1;
 
 
   for (
@@ -4169,23 +4919,26 @@ async function drawPowerChart(
 
     const y =
       pad.top +
-      ch *
+      chartH *
       i /
       4;
 
 
     ctx.beginPath();
 
+
     ctx.moveTo(
       pad.left,
       y
     );
+
 
     ctx.lineTo(
       W -
       pad.right,
       y
     );
+
 
     ctx.stroke();
   }
@@ -4203,8 +4956,12 @@ async function drawPowerChart(
       "9px -apple-system";
 
 
+    ctx.textAlign =
+      "left";
+
+
     ctx.fillText(
-      "Új valódi mérésre várunk…",
+      "Új mérésre várunk…",
       pad.left +
       6,
       H /
@@ -4238,12 +4995,16 @@ async function drawPowerChart(
     minY === maxY
   ) {
 
-    minY -= 2;
-    maxY += 2;
+    minY -=
+      2;
+
+
+    maxY +=
+      2;
   }
 
 
-  const extra =
+  const margin =
     Math.max(
       1,
       (
@@ -4254,8 +5015,12 @@ async function drawPowerChart(
     );
 
 
-  minY -= extra;
-  maxY += extra;
+  minY -=
+    margin;
+
+
+  maxY +=
+    margin;
 
 
   const maxX =
@@ -4283,7 +5048,7 @@ async function drawPowerChart(
           minX
         )
       ) *
-      cw;
+      chartW;
 
 
   const sy =
@@ -4299,7 +5064,7 @@ async function drawPowerChart(
           minY
         )
       ) *
-      ch;
+      chartH;
 
 
   ctx.fillStyle =
@@ -4332,16 +5097,20 @@ async function drawPowerChart(
 
     const y =
       pad.top +
-      ch *
+      chartH *
       i /
       2;
 
 
     ctx.fillText(
-      Math.round(value) +
+      Math.round(
+        value
+      ) +
       " MW",
+
       pad.left -
       4,
+
       y +
       3
     );
@@ -4364,7 +5133,7 @@ async function drawPowerChart(
     i++
   ) {
 
-    const ts =
+    const timestamp =
       minX +
       (
         maxX -
@@ -4374,26 +5143,30 @@ async function drawPowerChart(
       divisions;
 
 
-    const d =
-      new Date(ts);
+    const date =
+      new Date(
+        timestamp
+      );
 
 
     const label =
       hours >= 240
-        ? d.toLocaleDateString(
+        ? date.toLocaleDateString(
             "hu-HU",
             {
               month:
                 "2-digit",
+
               day:
                 "2-digit"
             }
           )
-        : d.toLocaleTimeString(
+        : date.toLocaleTimeString(
             "hu-HU",
             {
               hour:
                 "2-digit",
+
               minute:
                 "2-digit"
             }
@@ -4402,18 +5175,21 @@ async function drawPowerChart(
 
     ctx.fillText(
       label,
-      sx(ts),
-      H - 4
+      sx(
+        timestamp
+      ),
+      H -
+      4
     );
   }
 
 
   ctx.strokeStyle =
-    "#65df58";
+    "#61df54";
 
 
   ctx.fillStyle =
-    "#65df58";
+    "#61df54";
 
 
   ctx.lineWidth =
@@ -4433,15 +5209,20 @@ async function drawPowerChart(
 
   data.forEach(
     (
-      p,
+      point,
       index
     ) => {
 
       const x =
-        sx(p.x);
+        sx(
+          point.x
+        );
+
 
       const y =
-        sy(p.y);
+        sy(
+          point.y
+        );
 
 
       if (
@@ -4469,7 +5250,8 @@ async function drawPowerChart(
 
   const last =
     data[
-      data.length - 1
+      data.length -
+      1
     ];
 
 
@@ -4477,9 +5259,13 @@ async function drawPowerChart(
 
 
   ctx.arc(
-    sx(last.x),
-    sy(last.y),
-    3.5,
+    sx(
+      last.x
+    ),
+    sy(
+      last.y
+    ),
+    4,
     0,
     Math.PI *
     2
@@ -4491,7 +5277,7 @@ async function drawPowerChart(
 
 
 // ============================================================
-// GOMBOK
+// GRAFIKON GOMBOK
 // ============================================================
 
 document
@@ -4516,8 +5302,8 @@ document
               ".period"
             )
             .forEach(
-              b =>
-                b.classList
+              element =>
+                element.classList
                   .remove(
                     "active"
                   )
@@ -4544,7 +5330,7 @@ document
 
 
 // ============================================================
-// MÁSOLÁS
+// LINK MÁSOLÁS
 // ============================================================
 
 document
@@ -4612,22 +5398,25 @@ setInterval(
 );
 
 drawPowerChart(
-  24
+  selectedHours
 );
 
 
 // ============================================================
-// FORGATÁS
+// FORGATÁS / SAFARI CÍMSOR MOZGÁSA
 // ============================================================
+
+let resizeTimer;
+
 
 function refit() {
 
   clearTimeout(
-    window.__vpaksResize
+    resizeTimer
   );
 
 
-  window.__vpaksResize =
+  resizeTimer =
     setTimeout(
       () => {
 
@@ -4641,7 +5430,7 @@ function refit() {
         );
 
       },
-      150
+      120
     );
 }
 
@@ -4658,16 +5447,35 @@ window.addEventListener(
 
     setTimeout(
       refit,
-      300
+      250
+    );
+
+
+    setTimeout(
+      refit,
+      700
     );
   }
 );
+
+
+if (
+  window.visualViewport
+) {
+
+  window.visualViewport
+    .addEventListener(
+      "resize",
+      refit
+    );
+}
 
 
 </script>
 
 
 </body>
+
 </html>`;
 
 
@@ -4675,7 +5483,9 @@ window.addEventListener(
       html,
       {
         status: 200,
+
         headers: {
+
           "content-type":
             "text/html;charset=UTF-8",
 
