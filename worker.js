@@ -2,10 +2,17 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
+    // Diagnosztika:
+    // https://SAJAT-WORKER.workers.dev/api
     if (url.pathname === "/api") {
       const data = await loadAllData();
 
-      return json(data);
+      return new Response(JSON.stringify(data, null, 2), {
+        headers: {
+          "content-type": "application/json; charset=UTF-8",
+          "cache-control": "no-store"
+        }
+      });
     }
 
     const data = await loadAllData();
@@ -14,283 +21,165 @@ export default {
       headers: {
         "content-type": "text/html; charset=UTF-8",
         "cache-control": "no-store, no-cache, must-revalidate",
-      },
+        "pragma": "no-cache"
+      }
     });
-  },
+  }
 };
 
 
 /* ============================================================
-   PAKS MONITOR – LETISZTULT VERZIÓ
-
-   CSAK:
-   - 1. blokk MW
-   - 2. blokk MW
-   - 3. blokk MW
-   - 4. blokk MW
-   - összteljesítmény
-   - Paks Duna vízállás
-   - Paks Duna vízhőmérséklet
+   PAKS MONITOR – LETISZTULT
 ============================================================ */
 
 
-/* ============================================================
-   FORRÁSOK
-============================================================ */
+/*
+   ELLENŐRZÖTT, MŰKÖDŐ FORRÁSOK
+*/
 
-const OAH_URLS = [
-
-  "https://tranem.haea.gov.hu/web/v3/oahportal.nsf/web?article=paksnpp&openagent=",
-
-  "https://www.haea.gov.hu/web/v3/OAHportal.nsf/web?OpenAgent=&article=paksnpp",
-
-  "https://nyomtatvany.haea.gov.hu/web/v3/oahportal.nsf/web?article=paksnpp&openagent="
-];
-
+const OAH_URL =
+  "https://tranem.haea.gov.hu/web/v3/oahportal.nsf/web?article=paksnpp&openagent=";
 
 const VIZ_URL =
-  "https://www.vizugy.hu/?AllomasVOA=16496188-97AB-11D4-BB62-00508BA24287&mapData=Idosor&mapModule=OpFeGrafikon";
-
+  "https://www.vizugy.hu/?AllomasVOA=16496188-97AB-11D4-BB62-00508BA24287&mapData=OrasIdosor&mapModule=OpGrafikon";
 
 
 /* ============================================================
-   MINDEN ADAT
+   ADATOK BETÖLTÉSE
 ============================================================ */
 
 async function loadAllData() {
 
-  const [paksResult, waterResult] =
-    await Promise.allSettled([
-      loadPaks(),
-      loadWater()
-    ]);
+  const [oahResult, vizResult] = await Promise.allSettled([
+    loadOAH(),
+    loadVizugy()
+  ]);
 
 
-  const paks =
-    paksResult.status === "fulfilled"
-      ? paksResult.value
+  const oah =
+    oahResult.status === "fulfilled"
+      ? oahResult.value
       : {
           blocks: [null, null, null, null],
           total: null,
           time: "–",
-          status: "KAPCSOLATI HIBA"
+          status: "HIBA",
+          error: String(oahResult.reason || "")
         };
 
 
-  const water =
-    waterResult.status === "fulfilled"
-      ? waterResult.value
+  const viz =
+    vizResult.status === "fulfilled"
+      ? vizResult.value
       : {
           water: null,
           temp: null,
           time: "–",
-          status: "KAPCSOLATI HIBA"
+          status: "HIBA",
+          error: String(vizResult.reason || "")
         };
 
 
   return {
+    blocks: oah.blocks,
+    total: oah.total,
 
-    blocks: paks.blocks,
+    oahTime: oah.time,
+    oahStatus: oah.status,
+    oahError: oah.error || null,
 
-    total: paks.total,
+    water: viz.water,
+    temp: viz.temp,
 
-    oahTime: paks.time,
+    waterTime: viz.time,
+    waterStatus: viz.status,
+    waterError: viz.error || null,
 
-    oahStatus: paks.status,
-
-    water: water.water,
-
-    temp: water.temp,
-
-    waterTime: water.time,
-
-    waterStatus: water.status,
-
-    generated:
-      new Date().toISOString()
-
+    generated: new Date().toISOString()
   };
 }
 
 
-
 /* ============================================================
-   OAH – PAKSI BLOKKOK
+   OAH
 ============================================================ */
 
-async function loadPaks() {
+async function loadOAH() {
 
-  let lastError = null;
+  const html = await fetchSource(OAH_URL);
 
-
-  for (const baseUrl of OAH_URLS) {
-
-    try {
-
-      const html =
-        await fetchFresh(baseUrl);
-
-
-      const result =
-        parseOAH(html);
-
-
-      if (
-        result.blocks &&
-        result.blocks.filter(
-          x => x !== null
-        ).length === 4
-      ) {
-
-        return {
-          ...result,
-          status: "OK"
-        };
-
-      }
-
-
-      lastError =
-        new Error("OAH ADATHIBA");
-
-    }
-
-    catch (e) {
-
-      lastError = e;
-
-    }
-
-  }
-
-
-  throw lastError ||
-    new Error("OAH KAPCSOLATI HIBA");
-}
-
-
-
-/* ============================================================
-   OAH PARSER
-============================================================ */
-
-function parseOAH(html) {
-
-  const text =
-    htmlToText(html);
-
+  const text = htmlToText(html);
 
   /*
-     A tényleges OAH oldal körülbelül így néz ki:
-
-     Utolsó frissítés: 2026. 08. 24 11:09
+     Megkeressük kizárólag ezt a részt:
 
      A Paksi Atomerőmű elektromos teljesítmény adatai
 
-     1. blokk
-     2. blokk
-     3. blokk
-     4. blokk
-
-     470 MW
-     478 MW
-     467 MW
-     0 MW
+     1. blokk 2. blokk 3. blokk 4. blokk
+     xxx MW xxx MW xxx MW xxx MW
   */
 
-
-  let section = text;
-
-
-  const startText =
+  const marker =
     "A Paksi Atomerőmű elektromos teljesítmény adatai";
 
+  const markerPos =
+    normalize(text).indexOf(normalize(marker));
 
-  const start =
-    text.indexOf(startText);
 
-
-  if (start >= 0) {
-
-    section =
-      text.slice(
-        start,
-        start + 1200
-      );
-
+  if (markerPos < 0) {
+    throw new Error("OAH: teljesítmény szakasz nem található");
   }
 
 
   /*
-     Az elektromos teljesítmény szakaszból
-     vesszük az első 4 MW értéket.
+     Csak az ezt követő rövid szakaszt vizsgáljuk,
+     így más MW szám nem keveredhet bele.
   */
 
-  const mwMatches =
-    [
-      ...section.matchAll(
-        /(-?\d{1,4}(?:[.,]\d+)?)\s*MW/gi
-      )
-    ];
+  const section =
+    text.substring(markerPos, markerPos + 1000);
+
+
+  const matches =
+    [...section.matchAll(/(-?\d{1,4}(?:[.,]\d+)?)\s*MW/gi)];
 
 
   const values = [];
 
 
-  for (const match of mwMatches) {
+  for (const match of matches) {
 
-    const n =
-      toNumber(match[1]);
-
+    const n = toNumber(match[1]);
 
     if (
       n !== null &&
       n >= 0 &&
       n <= 600
     ) {
-
-      values.push(
-        Math.round(n)
-      );
-
+      values.push(Math.round(n));
     }
 
+    if (values.length === 4) break;
+  }
 
-    if (values.length === 4)
-      break;
 
+  if (values.length !== 4) {
+    throw new Error(
+      "OAH: nem található mind a 4 blokk teljesítménye"
+    );
   }
 
 
   const blocks = [
-    values[0] ?? null,
-    values[1] ?? null,
-    values[2] ?? null,
-    values[3] ?? null
+    values[0],
+    values[1],
+    values[2],
+    values[3]
   ];
 
 
-  /*
-     CSAK akkor számolunk összeget,
-     ha mind a négy blokk megvan.
-  */
-
-  let total = null;
-
-
-  if (
-    blocks.every(
-      x => x !== null
-    )
-  ) {
-
-    total =
-      blocks.reduce(
-        (a, b) => a + b,
-        0
-      );
-
-  }
+  const total =
+    blocks.reduce((sum, value) => sum + value, 0);
 
 
   /*
@@ -300,387 +189,334 @@ function parseOAH(html) {
   let time = "–";
 
 
-  const tm =
+  const timeMatch =
     text.match(
       /Utolsó\s+frissítés\s*:\s*(\d{4}\.\s*\d{1,2}\.\s*\d{1,2}\s+\d{1,2}:\d{2})/i
     );
 
 
-  if (tm) {
-
+  if (timeMatch) {
     time =
-      tm[1]
+      timeMatch[1]
         .replace(/\s+/g, " ")
         .trim();
-
   }
 
 
   return {
     blocks,
     total,
-    time
-  };
-
-}
-
-
-
-/* ============================================================
-   VÍZÜGY
-============================================================ */
-
-async function loadWater() {
-
-  const html =
-    await fetchFresh(VIZ_URL);
-
-
-  const result =
-    parseWater(html);
-
-
-  if (
-    result.water === null
-  ) {
-
-    throw new Error(
-      "VÍZÜGY ADATHIBA"
-    );
-
-  }
-
-
-  return {
-    ...result,
+    time,
     status: "OK"
   };
-
 }
 
 
-
 /* ============================================================
-   VÍZÜGY PARSER
+   VÍZÜGY – PAKS
 ============================================================ */
 
-function parseWater(html) {
+async function loadVizugy() {
 
-  const text =
-    htmlToText(html);
+  const html = await fetchSource(VIZ_URL);
+
+  const text = htmlToText(html);
 
 
   /*
-     Megkeressük a PAKS vízmérce részét.
+     Megkeressük pontosan a Paks vízmérce részt.
   */
 
-  let section = text;
+  const marker = "Paks vízmérce";
+
+  const markerPos =
+    normalize(text).indexOf(normalize(marker));
 
 
-  const marker =
-    "Paks vízmérce";
-
-
-  const p =
-    text.indexOf(marker);
-
-
-  if (p >= 0) {
-
-    section =
-      text.slice(
-        p,
-        p + 5000
-      );
-
+  if (markerPos < 0) {
+    throw new Error(
+      "VÍZÜGY: Paks vízmérce nem található"
+    );
   }
 
 
+  const section =
+    text.substring(markerPos, markerPos + 5000);
+
+
   /*
-     Valós Vízügy formátum:
+     A tényleges jelenlegi sor ilyen:
 
-     2026.08.02. 11:00 -133 737.800 - 27.4
+     2026.08.25. 10:00 -68 1006,000 24,3
 
-     oszlopok:
+     vagy bizonyos esetekben:
 
-     dátum
-     idő
-     vízállás cm
-     vízhozam
-     felszíni vízhő
-     mederfenéki vízhő
+     dátum idő vízállás vízhozam felszíni-hő mederfenéki-hő
 
-     Ha a felszíni érték "-"
-     akkor a mederfenéki vízhőt használjuk.
+     Ezért NEM követelünk kötelezően két hőmérsékleti mezőt.
   */
 
-
   const rowRegex =
-    /(\d{4}\.\d{2}\.\d{2}\.)\s+(\d{1,2}:\d{2})\s+(-?\d{1,4})\s+(-?\d+(?:[.,]\d+)?)\s+(-|\d+(?:[.,]\d+)?)\s+(-|\d+(?:[.,]\d+)?)/g;
+    /(\d{4}\.\d{2}\.\d{2}\.)\s+(\d{1,2}:\d{2})\s+(-?\d{1,4})\s+(-?\d+(?:[.,]\d+)?)\s+(?:(-|\d+(?:[.,]\d+)?))(?:\s+(-|\d+(?:[.,]\d+)?))?/g;
 
 
   let match;
 
 
-  while (
-    (match = rowRegex.exec(section))
-    !== null
-  ) {
+  while ((match = rowRegex.exec(section)) !== null) {
 
-
-    const date =
-      match[1];
-
-
-    const clock =
-      match[2];
-
+    const date = match[1];
+    const clock = match[2];
 
     const water =
       toNumber(match[3]);
 
+    const temp1 =
+      match[5] && match[5] !== "-"
+        ? toNumber(match[5])
+        : null;
 
-    const surfaceTemp =
-      match[5] === "-"
-        ? null
-        : toNumber(match[5]);
-
-
-    const bottomTemp =
-      match[6] === "-"
-        ? null
-        : toNumber(match[6]);
+    const temp2 =
+      match[6] && match[6] !== "-"
+        ? toNumber(match[6])
+        : null;
 
 
     /*
-       Elsődlegesen felszíni vízhő.
-       Ha nincs, akkor mederfenéki.
-    */
+       Ha felszíni hő van, azt használjuk.
+       Ha nincs, de mederfenéki van, azt.
+  */
 
     const temp =
-      surfaceTemp !== null
-        ? surfaceTemp
-        : bottomTemp;
+      temp1 !== null
+        ? temp1
+        : temp2;
 
 
     if (
       water !== null &&
-      water > -500 &&
-      water < 1000
+      water >= -500 &&
+      water <= 1000
     ) {
 
       return {
-
-        water:
-          Math.round(water),
+        water: Math.round(water),
 
         temp:
-          temp === null
-            ? null
-            : Math.round(
-                temp * 10
-              ) / 10,
+          temp !== null
+            ? Math.round(temp * 10) / 10
+            : null,
 
-        time:
-          `${date} ${clock}`
+        time: `${date} ${clock}`,
 
+        status: "OK"
       };
-
     }
-
   }
 
 
-  return {
-
-    water: null,
-
-    temp: null,
-
-    time: "–"
-
-  };
-
+  throw new Error(
+    "VÍZÜGY: aktuális paksi mérési sor nem található"
+  );
 }
 
 
-
 /* ============================================================
-   FRISS FETCH
+   FORRÁS LEKÉRÉSE
 ============================================================ */
 
-async function fetchFresh(baseUrl) {
+async function fetchSource(url) {
 
   /*
-     Cache-buster:
-     így a Cloudflare sem tartja bent
-     a régi OAH/Vízügy oldalt.
+     Fontos:
+     nincs kamu host,
+     nincs alternatív domain,
+     nincs automatikus címváltogatás.
   */
 
-  const separator =
-    baseUrl.includes("?")
-      ? "&"
-      : "?";
+  const response = await fetch(url, {
+    method: "GET",
+
+    headers: {
+      "Accept":
+        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+
+      "Accept-Language":
+        "hu-HU,hu;q=0.9,en;q=0.7",
+
+      "User-Agent":
+        "Mozilla/5.0 (compatible; PaksMonitor/1.0)"
+    },
+
+    cf: {
+      cacheTtl: 0,
+      cacheEverything: false
+    }
+  });
 
 
-  const url =
-    baseUrl +
-    separator +
-    "_paksmonitor=" +
-    Date.now();
-
-
-  const res =
-    await fetch(
-      url,
-      {
-        method: "GET",
-
-        headers: {
-
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36",
-
-          "Accept":
-            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-
-          "Accept-Language":
-            "hu-HU,hu;q=0.9,en;q=0.7",
-
-          "Cache-Control":
-            "no-cache",
-
-          "Pragma":
-            "no-cache"
-
-        },
-
-        cf: {
-          cacheTtl: 0,
-          cacheEverything: false
-        }
-
-      }
-    );
-
-
-  if (!res.ok) {
-
+  if (!response.ok) {
     throw new Error(
-      "HTTP " + res.status
+      `HTTP ${response.status} – ${url}`
     );
-
   }
 
 
-  return await res.text();
+  const html =
+    await response.text();
 
+
+  if (!html || html.length < 200) {
+    throw new Error(
+      "Üres vagy hibás válasz"
+    );
+  }
+
+
+  return html;
 }
 
 
-
 /* ============================================================
-   HTML -> TEXT
+   HTML → SZÖVEG
 ============================================================ */
 
 function htmlToText(html) {
 
-  return String(html)
+  return decodeEntities(
+    String(html)
 
-    .replace(
-      /<script[\s\S]*?<\/script>/gi,
-      " "
-    )
+      .replace(
+        /<script[\s\S]*?<\/script>/gi,
+        " "
+      )
 
-    .replace(
-      /<style[\s\S]*?<\/style>/gi,
-      " "
-    )
+      .replace(
+        /<style[\s\S]*?<\/style>/gi,
+        " "
+      )
 
-    .replace(
-      /<br\s*\/?>/gi,
-      " "
-    )
+      .replace(
+        /<br\s*\/?>/gi,
+        " "
+      )
 
-    .replace(
-      /<\/tr>/gi,
-      " "
-    )
+      .replace(
+        /<\/p>/gi,
+        " "
+      )
 
-    .replace(
-      /<\/td>/gi,
-      " "
-    )
+      .replace(
+        /<\/div>/gi,
+        " "
+      )
 
-    .replace(
-      /<\/th>/gi,
-      " "
-    )
+      .replace(
+        /<\/td>/gi,
+        " "
+      )
 
-    .replace(
-      /<[^>]*>/g,
-      " "
-    )
+      .replace(
+        /<\/th>/gi,
+        " "
+      )
 
-    .replace(
-      /&nbsp;/gi,
-      " "
-    )
+      .replace(
+        /<\/tr>/gi,
+        " "
+      )
 
-    .replace(
-      /&#160;/gi,
-      " "
-    )
+      .replace(
+        /<[^>]+>/g,
+        " "
+      )
 
-    .replace(
-      /&deg;/gi,
-      "°"
-    )
+      .replace(
+        /\s+/g,
+        " "
+      )
 
-    .replace(
-      /&minus;/gi,
-      "-"
-    )
-
-    .replace(
-      /&ndash;/gi,
-      "-"
-    )
-
-    .replace(
-      /&mdash;/gi,
-      "-"
-    )
-
-    .replace(
-      /&amp;/gi,
-      "&"
-    )
-
-    .replace(
-      /\s+/g,
-      " "
-    )
-
-    .trim();
-
+      .trim()
+  );
 }
 
 
+/* ============================================================
+   HTML ENTITÁSOK
+============================================================ */
+
+function decodeEntities(text) {
+
+  return String(text)
+
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&#160;/gi, " ")
+
+    .replace(/&aacute;/gi, "á")
+    .replace(/&Aacute;/gi, "Á")
+
+    .replace(/&eacute;/gi, "é")
+    .replace(/&Eacute;/gi, "É")
+
+    .replace(/&iacute;/gi, "í")
+    .replace(/&Iacute;/gi, "Í")
+
+    .replace(/&oacute;/gi, "ó")
+    .replace(/&Oacute;/gi, "Ó")
+
+    .replace(/&ouml;/gi, "ö")
+    .replace(/&Ouml;/gi, "Ö")
+
+    .replace(/&odblac;/gi, "ő")
+    .replace(/&Odblac;/gi, "Ő")
+
+    .replace(/&uacute;/gi, "ú")
+    .replace(/&Uacute;/gi, "Ú")
+
+    .replace(/&uuml;/gi, "ü")
+    .replace(/&Uuml;/gi, "Ü")
+
+    .replace(/&udblac;/gi, "ű")
+    .replace(/&Udblac;/gi, "Ű")
+
+    .replace(/&deg;/gi, "°")
+
+    .replace(/&minus;/gi, "-")
+    .replace(/&ndash;/gi, "-")
+    .replace(/&mdash;/gi, "-")
+
+    .replace(/&amp;/gi, "&")
+
+    .replace(/&#39;/gi, "'")
+    .replace(/&quot;/gi, '"');
+}
+
 
 /* ============================================================
-   SZÁM
+   NORMALIZÁLÁS
+============================================================ */
+
+function normalize(value) {
+
+  return String(value)
+    .toLocaleLowerCase("hu-HU")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+
+/* ============================================================
+   SZÁM KONVERZIÓ
 ============================================================ */
 
 function toNumber(value) {
 
   if (
     value === null ||
-    value === undefined
+    value === undefined ||
+    value === "-"
   ) {
-
     return null;
-
   }
 
 
@@ -695,35 +531,7 @@ function toNumber(value) {
   return Number.isFinite(n)
     ? n
     : null;
-
 }
-
-
-
-/* ============================================================
-   JSON DEBUG
-============================================================ */
-
-function json(data) {
-
-  return new Response(
-    JSON.stringify(
-      data,
-      null,
-      2
-    ),
-    {
-      headers: {
-        "content-type":
-          "application/json; charset=UTF-8",
-        "cache-control":
-          "no-store"
-      }
-    }
-  );
-
-}
-
 
 
 /* ============================================================
@@ -733,460 +541,289 @@ function json(data) {
 function renderPage(data) {
 
   const blocks =
-    data.blocks ||
-    [
-      null,
-      null,
-      null,
-      null
-    ];
+    Array.isArray(data.blocks)
+      ? data.blocks
+      : [null, null, null, null];
 
 
-  return `<!doctype html>
+  const oahOK =
+    data.oahStatus === "OK";
+
+  const vizOK =
+    data.waterStatus === "OK";
+
+
+  return `<!DOCTYPE html>
 
 <html lang="hu">
 
 <head>
 
-<meta charset="utf-8">
+<meta charset="UTF-8">
 
 <meta
- name="viewport"
- content="width=device-width,
- initial-scale=1,
- maximum-scale=5,
- user-scalable=yes"
+  name="viewport"
+  content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"
 >
 
-<meta
- name="theme-color"
- content="#06111a"
->
+<meta name="theme-color" content="#06111a">
 
-<title>
-PAKS MONITOR
-</title>
+<title>PAKS MONITOR</title>
 
 
 <style>
 
-*{
- box-sizing:border-box;
+* {
+  box-sizing: border-box;
 }
-
 
 html,
-body{
-
- margin:0;
- padding:0;
-
- background:#06111a;
-
- color:white;
-
- font-family:
- -apple-system,
- BlinkMacSystemFont,
- "Segoe UI",
- Arial,
- sans-serif;
-
+body {
+  margin: 0;
+  padding: 0;
+  background: #06111a;
+  color: #fff;
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Arial,
+    sans-serif;
 }
 
-
-body{
- min-height:100vh;
+body {
+  min-height: 100vh;
 }
 
-
-.page{
-
- width:100%;
- max-width:720px;
-
- margin:auto;
-
- padding:
- 22px 16px 30px;
-
+.page {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 22px 16px 30px;
 }
 
 
 /* HEADER */
 
-.header{
-
- display:flex;
-
- align-items:center;
-
- justify-content:
- space-between;
-
- margin-bottom:20px;
-
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
 }
 
-
-.logo{
-
- display:flex;
-
- align-items:center;
-
- gap:10px;
-
- font-weight:950;
-
- font-size:25px;
-
- letter-spacing:-1px;
-
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 25px;
+  font-weight: 950;
+  letter-spacing: -1px;
 }
 
-
-.atom{
-
- font-size:27px;
-
+.atom {
+  font-size: 27px;
 }
 
-
-.live{
-
- color:#45e6a1;
-
- font-size:14px;
-
- font-weight:900;
-
+.live {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #45e6a1;
+  font-size: 14px;
+  font-weight: 900;
 }
 
-
-.live::before{
-
- content:"";
-
- display:inline-block;
-
- width:9px;
- height:9px;
-
- margin-right:7px;
-
- border-radius:50%;
-
- background:#45e6a1;
-
- box-shadow:
- 0 0 15px #45e6a1;
-
+.liveDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #45e6a1;
+  box-shadow: 0 0 15px #45e6a1;
 }
 
 
 /* KÁRTYA */
 
-.card{
-
- background:#0c1a25;
-
- border:
- 1px solid #203544;
-
- border-radius:20px;
-
+.card {
+  background: #0c1a25;
+  border: 1px solid #203544;
+  border-radius: 20px;
 }
 
 
 /* ÖSSZTELJESÍTMÉNY */
 
-.total{
-
- padding:
- 20px 10px 22px;
-
- text-align:center;
-
- margin-bottom:13px;
-
+.total {
+  margin-bottom: 13px;
+  padding: 20px 10px 22px;
+  text-align: center;
 }
 
-
-.label{
-
- color:#8da1b0;
-
- font-size:14px;
-
- font-weight:800;
-
- letter-spacing:.4px;
-
+.label {
+  color: #8da1b0;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: .4px;
 }
 
-
-.totalNumber{
-
- margin-top:7px;
-
- font-size:48px;
-
- line-height:1;
-
- font-weight:950;
-
- color:#48e5a0;
-
+.totalNumber {
+  margin-top: 7px;
+  color: #48e5a0;
+  font-size: 48px;
+  font-weight: 950;
+  line-height: 1;
 }
 
-
-.totalNumber span{
-
- color:#94a8b6;
-
- font-size:18px;
-
- margin-left:4px;
-
+.totalNumber span {
+  margin-left: 4px;
+  color: #94a8b6;
+  font-size: 18px;
 }
 
 
 /* BLOKKOK */
 
-.blocks{
-
- display:grid;
-
- grid-template-columns:
- 1fr 1fr;
-
- gap:10px;
-
+.blocks {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
 
-
-.block{
-
- min-height:102px;
-
- display:flex;
-
- flex-direction:column;
-
- justify-content:center;
-
- align-items:center;
-
+.block {
+  min-height: 102px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
 }
 
-
-.blockName{
-
- color:#8fa2b0;
-
- font-size:14px;
-
- font-weight:850;
-
- margin-bottom:8px;
-
+.blockName {
+  margin-bottom: 8px;
+  color: #8fa2b0;
+  font-size: 14px;
+  font-weight: 850;
 }
 
-
-.blockMW{
-
- font-size:31px;
-
- font-weight:950;
-
- line-height:1;
-
+.blockMW {
+  font-size: 31px;
+  font-weight: 950;
+  line-height: 1;
 }
 
-
-.blockMW span{
-
- margin-left:4px;
-
- color:#8498a8;
-
- font-size:15px;
-
+.blockMW span {
+  margin-left: 4px;
+  color: #8498a8;
+  font-size: 15px;
 }
 
 
 /* DUNA */
 
-.dunaTitle{
-
- color:#94a8b6;
-
- font-size:15px;
-
- font-weight:900;
-
- letter-spacing:1.4px;
-
- margin:
- 20px 3px 10px;
-
+.dunaTitle {
+  margin: 20px 3px 10px;
+  color: #94a8b6;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 1.4px;
 }
 
-
-.duna{
-
- display:grid;
-
- grid-template-columns:
- 1fr 1fr;
-
- gap:10px;
-
+.duna {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
 
-
-.waterCard{
-
- min-height:138px;
-
- text-align:center;
-
- display:flex;
-
- flex-direction:column;
-
- justify-content:center;
-
+.waterCard {
+  min-height: 138px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  text-align: center;
 }
 
-
-.icon{
-
- font-size:24px;
-
- margin-bottom:5px;
-
+.icon {
+  margin-bottom: 5px;
+  font-size: 24px;
 }
 
-
-.waterLabel{
-
- font-size:13px;
-
- font-weight:850;
-
- color:#8da1b0;
-
+.waterLabel {
+  color: #8da1b0;
+  font-size: 13px;
+  font-weight: 850;
 }
 
-
-.waterNumber{
-
- margin-top:6px;
-
- font-size:38px;
-
- line-height:1;
-
- font-weight:950;
-
- color:#57c8ff;
-
+.waterNumber {
+  margin-top: 6px;
+  color: #57c8ff;
+  font-size: 38px;
+  font-weight: 950;
+  line-height: 1;
 }
 
-
-.waterNumber span{
-
- margin-left:4px;
-
- font-size:15px;
-
- color:#91a5b4;
-
+.waterNumber span {
+  margin-left: 4px;
+  color: #91a5b4;
+  font-size: 15px;
 }
 
-
-.tempNumber{
-
- color:#ffc857;
-
+.tempNumber {
+  color: #ffc857;
 }
 
 
 /* FOOTER */
 
-.footer{
+.footer {
+  margin-top: 16px;
+  padding-top: 13px;
+  border-top: 1px solid #17303e;
+  color: #607786;
+  font-size: 11px;
+  line-height: 1.8;
+  text-align: center;
+}
 
- border-top:
- 1px solid #17303e;
+.ok {
+  color: #45e6a1;
+}
 
- margin-top:16px;
+.err {
+  color: #ffbf55;
+}
 
- padding-top:13px;
-
- text-align:center;
-
- color:#607786;
-
- font-size:11px;
-
- line-height:1.8;
-
+.brand {
+  margin-top: 8px;
+  color: #415866;
+  font-weight: 900;
+  letter-spacing: 4px;
 }
 
 
-.brand{
+/* MOBIL */
 
- margin-top:8px;
+@media (max-width: 390px) {
 
- font-weight:900;
+  .page {
+    padding: 18px 12px 25px;
+  }
 
- letter-spacing:4px;
+  .logo {
+    font-size: 22px;
+  }
 
- color:#415866;
+  .totalNumber {
+    font-size: 44px;
+  }
 
-}
+  .blockMW {
+    font-size: 29px;
+  }
 
-
-/* STATUS */
-
-.good{
- color:#45e6a1;
-}
-
-.bad{
- color:#ffbf55;
-}
-
-
-/* KISEBB MOBIL */
-
-@media(
- max-width:390px
-){
-
- .page{
-   padding:
-   18px 12px 25px;
- }
-
- .logo{
-   font-size:22px;
- }
-
- .totalNumber{
-   font-size:44px;
- }
-
- .blockMW{
-   font-size:29px;
- }
-
- .waterNumber{
-   font-size:35px;
- }
-
+  .waterNumber {
+    font-size: 35px;
+  }
 }
 
 </style>
@@ -1196,208 +833,131 @@ body{
 
 <body>
 
-
 <div class="page">
 
 
-<div class="header">
+  <div class="header">
 
- <div class="logo">
+    <div class="logo">
+      <span class="atom">⚛️</span>
+      PAKS MONITOR
+    </div>
 
-   <span class="atom">
-   ⚛️
-   </span>
+    <div class="live">
+      <span class="liveDot"></span>
+      LIVE
+    </div>
 
-   PAKS MONITOR
+  </div>
 
- </div>
 
 
- <div class="live">
+  <div class="card total">
 
- LIVE
+    <div class="label">
+      ERŐMŰ ÖSSZTELJESÍTMÉNY
+    </div>
 
- </div>
+    <div class="totalNumber">
+      ${show(data.total)}
+      <span>MW</span>
+    </div>
 
-</div>
+  </div>
 
 
 
-<div class="card total">
+  <div class="blocks">
 
- <div class="label">
+    ${blockHTML(1, blocks[0])}
 
- ERŐMŰ ÖSSZTELJESÍTMÉNY
+    ${blockHTML(2, blocks[1])}
 
- </div>
+    ${blockHTML(3, blocks[2])}
 
+    ${blockHTML(4, blocks[3])}
 
- <div class="totalNumber">
+  </div>
 
- ${show(data.total)}
 
- <span>MW</span>
 
- </div>
+  <div class="dunaTitle">
+    DUNA • PAKS
+  </div>
 
-</div>
 
 
+  <div class="duna">
 
-<div class="blocks">
 
- ${blockHTML(
-   1,
-   blocks[0]
- )}
+    <div class="card waterCard">
 
- ${blockHTML(
-   2,
-   blocks[1]
- )}
+      <div class="icon">
+        💧
+      </div>
 
- ${blockHTML(
-   3,
-   blocks[2]
- )}
+      <div class="waterLabel">
+        VÍZÁLLÁS
+      </div>
 
- ${blockHTML(
-   4,
-   blocks[3]
- )}
+      <div class="waterNumber">
+        ${show(data.water)}
+        <span>cm</span>
+      </div>
 
-</div>
+    </div>
 
 
 
-<div class="dunaTitle">
+    <div class="card waterCard">
 
- DUNA • PAKS
+      <div class="icon">
+        🌡️
+      </div>
 
-</div>
+      <div class="waterLabel">
+        VÍZHŐMÉRSÉKLET
+      </div>
 
+      <div class="waterNumber tempNumber">
+        ${showTemp(data.temp)}
+        <span>°C</span>
+      </div>
 
+    </div>
 
-<div class="duna">
 
+  </div>
 
- <div class="card waterCard">
 
-   <div class="icon">
-   💧
-   </div>
 
-   <div class="waterLabel">
+  <div class="footer">
 
-   VÍZÁLLÁS
-
-   </div>
-
-   <div class="waterNumber">
-
-   ${show(data.water)}
-
-   <span>
-   cm
-   </span>
-
-   </div>
-
- </div>
-
-
-
- <div class="card waterCard">
-
-   <div class="icon">
-   🌡️
-   </div>
-
-   <div class="waterLabel">
-
-   VÍZHŐMÉRSÉKLET
-
-   </div>
-
-   <div class=
-   "waterNumber tempNumber">
-
-   ${showTemp(data.temp)}
-
-   <span>
-   °C
-   </span>
-
-   </div>
-
- </div>
-
-
-</div>
-
-
-
-<div class="footer">
-
- <div>
-
- PAKS • OAH:
- ${escapeHTML(
-   data.oahTime ||
-   "–"
- )}
-
- •
-
- <span class="${
-   data.oahStatus === "OK"
-     ? "good"
-     : "bad"
- }">
-
- ${escapeHTML(
-   data.oahStatus ||
-   "–"
- )}
-
- </span>
-
- </div>
-
-
- <div>
-
- DUNA • VÍZÜGY:
- ${escapeHTML(
-   data.waterTime ||
-   "–"
- )}
-
- •
-
- <span class="${
-   data.waterStatus === "OK"
-     ? "good"
-     : "bad"
- }">
-
- ${escapeHTML(
-   data.waterStatus ||
-   "–"
- )}
-
- </span>
-
- </div>
-
-
- <div class="brand">
-
- IGLÓDI
-
- </div>
-
-</div>
+    <div>
+      PAKS • OAH:
+      ${escapeHTML(data.oahTime || "–")}
+      •
+      <span class="${oahOK ? "ok" : "err"}">
+        ${escapeHTML(data.oahStatus || "–")}
+      </span>
+    </div>
+
+
+    <div>
+      DUNA • VÍZÜGY:
+      ${escapeHTML(data.waterTime || "–")}
+      •
+      <span class="${vizOK ? "ok" : "err"}">
+        ${escapeHTML(data.waterStatus || "–")}
+      </span>
+    </div>
+
+
+    <div class="brand">
+      IGLÓDI
+    </div>
+
+  </div>
 
 
 </div>
@@ -1405,71 +965,43 @@ body{
 
 <script>
 
-/*
-   Automatikus frissítés:
-   60 másodperc
-*/
-
-setTimeout(
- function(){
-
-   location.reload();
-
- },
- 60000
-);
+setTimeout(function () {
+  location.reload();
+}, 60000);
 
 </script>
 
 
 </body>
-
 </html>`;
-
 }
 
 
-
 /* ============================================================
-   BLOKK HTML
+   BLOKK
 ============================================================ */
 
-function blockHTML(
-  number,
-  mw
-) {
+function blockHTML(number, mw) {
 
   return `
+    <div class="card block">
 
-<div class="card block">
+      <div class="blockName">
+        ${number}. BLOKK
+      </div>
 
- <div class="blockName">
+      <div class="blockMW">
+        ${show(mw)}
+        <span>MW</span>
+      </div>
 
- ${number}. BLOKK
-
- </div>
-
-
- <div class="blockMW">
-
- ${show(mw)}
-
- <span>
- MW
- </span>
-
- </div>
-
-</div>
-
-`;
-
+    </div>
+  `;
 }
 
 
-
 /* ============================================================
-   MEGJELENÍTÉS
+   KIÍRÁS
 ============================================================ */
 
 function show(value) {
@@ -1477,80 +1009,46 @@ function show(value) {
   if (
     value === null ||
     value === undefined ||
-    !Number.isFinite(
-      Number(value)
-    )
+    !Number.isFinite(Number(value))
   ) {
-
     return "??";
-
   }
 
-
   return escapeHTML(
-    String(value)
-      .replace(".", ",")
+    String(value).replace(".", ",")
   );
-
 }
-
 
 
 function showTemp(value) {
 
   if (
     value === null ||
-    value === undefined
+    value === undefined ||
+    !Number.isFinite(Number(value))
   ) {
-
     return "??";
-
   }
 
-
   return escapeHTML(
-
     Number(value)
       .toFixed(1)
       .replace(".", ",")
-
   );
-
 }
 
 
-
 /* ============================================================
-   ESCAPE
+   HTML ESCAPE
 ============================================================ */
 
 function escapeHTML(value) {
 
   return String(value)
 
-    .replace(
-      /&/g,
-      "&amp;"
-    )
-
-    .replace(
-      /</g,
-      "&lt;"
-    )
-
-    .replace(
-      />/g,
-      "&gt;"
-    )
-
-    .replace(
-      /"/g,
-      "&quot;"
-    )
-
-    .replace(
-      /'/g,
-      "&#039;"
-    );
-
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
