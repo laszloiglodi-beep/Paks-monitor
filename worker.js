@@ -1,84 +1,77 @@
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request) {
     const url = new URL(request.url);
-
-    // Diagnosztika:
-    // https://SAJAT-WORKER.workers.dev/api
-    if (url.pathname === "/api") {
-      const data = await loadAllData();
-
-      return new Response(JSON.stringify(data, null, 2), {
-        headers: {
-          "content-type": "application/json; charset=UTF-8",
-          "cache-control": "no-store"
-        }
-      });
-    }
 
     const data = await loadAllData();
 
-    return new Response(renderPage(data), {
-      headers: {
-        "content-type": "text/html; charset=UTF-8",
-        "cache-control": "no-store, no-cache, must-revalidate",
-        "pragma": "no-cache"
+    if (url.pathname === "/api") {
+      return new Response(
+        JSON.stringify(data, null, 2),
+        {
+          headers: {
+            "content-type": "application/json; charset=UTF-8",
+            "cache-control": "no-store"
+          }
+        }
+      );
+    }
+
+    return new Response(
+      renderPage(data),
+      {
+        headers: {
+          "content-type": "text/html; charset=UTF-8",
+          "cache-control": "no-store, no-cache, must-revalidate"
+        }
       }
-    });
+    );
   }
 };
 
 
-/* ============================================================
-   PAKS MONITOR – LETISZTULT
-============================================================ */
-
-
-/*
-   ELLENŐRZÖTT, MŰKÖDŐ FORRÁSOK
-*/
+/* =========================================================
+   MŰKÖDŐ FORRÁSOK
+========================================================= */
 
 const OAH_URL =
-  "https://tranem.haea.gov.hu/web/v3/oahportal.nsf/web?article=paksnpp&openagent=";
+  "https://webmail.haea.gov.hu/web/v3/OAHPortal.nsf/web?OpenAgent=&article=paksnpp";
 
 const VIZ_URL =
   "https://www.vizugy.hu/?AllomasVOA=16496188-97AB-11D4-BB62-00508BA24287&mapData=OrasIdosor&mapModule=OpGrafikon";
 
 
-/* ============================================================
-   ADATOK BETÖLTÉSE
-============================================================ */
+/* =========================================================
+   ÖSSZES ADAT
+========================================================= */
 
 async function loadAllData() {
 
-  const [oahResult, vizResult] = await Promise.allSettled([
+  const results = await Promise.allSettled([
     loadOAH(),
-    loadVizugy()
+    loadWater()
   ]);
 
-
   const oah =
-    oahResult.status === "fulfilled"
-      ? oahResult.value
+    results[0].status === "fulfilled"
+      ? results[0].value
       : {
           blocks: [null, null, null, null],
           total: null,
           time: "–",
           status: "HIBA",
-          error: String(oahResult.reason || "")
+          error: String(results[0].reason || "")
         };
 
-
-  const viz =
-    vizResult.status === "fulfilled"
-      ? vizResult.value
+  const water =
+    results[1].status === "fulfilled"
+      ? results[1].value
       : {
           water: null,
           temp: null,
           time: "–",
           status: "HIBA",
-          error: String(vizResult.reason || "")
+          error: String(results[1].reason || "")
         };
-
 
   return {
     blocks: oah.blocks,
@@ -88,102 +81,99 @@ async function loadAllData() {
     oahStatus: oah.status,
     oahError: oah.error || null,
 
-    water: viz.water,
-    temp: viz.temp,
+    water: water.water,
+    temp: water.temp,
 
-    waterTime: viz.time,
-    waterStatus: viz.status,
-    waterError: viz.error || null,
-
-    generated: new Date().toISOString()
+    waterTime: water.time,
+    waterStatus: water.status,
+    waterError: water.error || null
   };
 }
 
 
-/* ============================================================
+/* =========================================================
    OAH
-============================================================ */
+========================================================= */
 
 async function loadOAH() {
 
-  const html = await fetchSource(OAH_URL);
+  const html = await fetchPage(OAH_URL);
 
   const text = htmlToText(html);
 
+
   /*
-     Megkeressük kizárólag ezt a részt:
+     A tényleges OAH szöveg:
 
      A Paksi Atomerőmű elektromos teljesítmény adatai
-
      1. blokk 2. blokk 3. blokk 4. blokk
-     xxx MW xxx MW xxx MW xxx MW
+     477 MW 490 MW 487 MW 322 MW
   */
 
-  const marker =
-    "A Paksi Atomerőmű elektromos teljesítmény adatai";
 
-  const markerPos =
-    normalize(text).indexOf(normalize(marker));
+  const powerStart =
+    text.search(
+      /Paksi\s+Atomerőmű\s+elektromos\s+teljesítmény\s+adatai/i
+    );
 
 
-  if (markerPos < 0) {
-    throw new Error("OAH: teljesítmény szakasz nem található");
+  if (powerStart < 0) {
+    throw new Error(
+      "OAH: teljesítmény rész nem található"
+    );
   }
 
 
   /*
-     Csak az ezt követő rövid szakaszt vizsgáljuk,
-     így más MW szám nem keveredhet bele.
+     Csak az ezt követő 1200 karakterből keresünk MW adatot.
   */
 
   const section =
-    text.substring(markerPos, markerPos + 1000);
+    text.slice(
+      powerStart,
+      powerStart + 1200
+    );
 
 
-  const matches =
-    [...section.matchAll(/(-?\d{1,4}(?:[.,]\d+)?)\s*MW/gi)];
+  const mw =
+    [
+      ...section.matchAll(
+        /(\d{1,3}(?:[.,]\d+)?)\s*MW/gi
+      )
+    ]
+      .map(m => toNumber(m[1]))
+      .filter(
+        n =>
+          n !== null &&
+          n >= 0 &&
+          n <= 600
+      );
 
 
-  const values = [];
-
-
-  for (const match of matches) {
-
-    const n = toNumber(match[1]);
-
-    if (
-      n !== null &&
-      n >= 0 &&
-      n <= 600
-    ) {
-      values.push(Math.round(n));
-    }
-
-    if (values.length === 4) break;
-  }
-
-
-  if (values.length !== 4) {
+  if (mw.length < 4) {
     throw new Error(
-      "OAH: nem található mind a 4 blokk teljesítménye"
+      "OAH: nincs meg mind a négy MW adat"
     );
   }
 
 
   const blocks = [
-    values[0],
-    values[1],
-    values[2],
-    values[3]
+    Math.round(mw[0]),
+    Math.round(mw[1]),
+    Math.round(mw[2]),
+    Math.round(mw[3])
   ];
 
 
   const total =
-    blocks.reduce((sum, value) => sum + value, 0);
+    blocks.reduce(
+      (sum, n) => sum + n,
+      0
+    );
 
 
   /*
-     OAH frissítési idő
+     Időpont
   */
 
   let time = "–";
@@ -212,152 +202,131 @@ async function loadOAH() {
 }
 
 
-/* ============================================================
-   VÍZÜGY – PAKS
-============================================================ */
+/* =========================================================
+   VÍZÜGY
+========================================================= */
 
-async function loadVizugy() {
+async function loadWater() {
 
-  const html = await fetchSource(VIZ_URL);
+  const html = await fetchPage(VIZ_URL);
 
   const text = htmlToText(html);
 
 
   /*
-     Megkeressük pontosan a Paks vízmérce részt.
+     Tényleges sor:
+
+     2026.08.25. 11:00 -67 1009,000 24,4
+
+     dátum
+     idő
+     vízállás
+     vízhozam
+     vízhő
   */
 
-  const marker = "Paks vízmérce";
 
-  const markerPos =
-    normalize(text).indexOf(normalize(marker));
+  const rows =
+    [
+      ...text.matchAll(
+        /(\d{4}\.\d{2}\.\d{2}\.)\s+(\d{1,2}:\d{2})\s+(-?\d{1,4})\s+(\d+(?:[.,]\d+)?)\s+(-?\d{1,2}(?:[.,]\d+)?)/g
+      )
+    ];
 
 
-  if (markerPos < 0) {
+  if (!rows.length) {
     throw new Error(
-      "VÍZÜGY: Paks vízmérce nem található"
+      "VÍZÜGY: mérési sor nem található"
     );
   }
 
 
-  const section =
-    text.substring(markerPos, markerPos + 5000);
-
-
   /*
-     A tényleges jelenlegi sor ilyen:
-
-     2026.08.25. 10:00 -68 1006,000 24,3
-
-     vagy bizonyos esetekben:
-
-     dátum idő vízállás vízhozam felszíni-hő mederfenéki-hő
-
-     Ezért NEM követelünk kötelezően két hőmérsékleti mezőt.
+     Az első dátumos mérési sor a legfrissebb.
   */
 
-  const rowRegex =
-    /(\d{4}\.\d{2}\.\d{2}\.)\s+(\d{1,2}:\d{2})\s+(-?\d{1,4})\s+(-?\d+(?:[.,]\d+)?)\s+(?:(-|\d+(?:[.,]\d+)?))(?:\s+(-|\d+(?:[.,]\d+)?))?/g;
+  const row = rows[0];
 
 
-  let match;
+  const water =
+    toNumber(row[3]);
+
+  const temp =
+    toNumber(row[5]);
 
 
-  while ((match = rowRegex.exec(section)) !== null) {
-
-    const date = match[1];
-    const clock = match[2];
-
-    const water =
-      toNumber(match[3]);
-
-    const temp1 =
-      match[5] && match[5] !== "-"
-        ? toNumber(match[5])
-        : null;
-
-    const temp2 =
-      match[6] && match[6] !== "-"
-        ? toNumber(match[6])
-        : null;
-
-
-    /*
-       Ha felszíni hő van, azt használjuk.
-       Ha nincs, de mederfenéki van, azt.
-  */
-
-    const temp =
-      temp1 !== null
-        ? temp1
-        : temp2;
-
-
-    if (
-      water !== null &&
-      water >= -500 &&
-      water <= 1000
-    ) {
-
-      return {
-        water: Math.round(water),
-
-        temp:
-          temp !== null
-            ? Math.round(temp * 10) / 10
-            : null,
-
-        time: `${date} ${clock}`,
-
-        status: "OK"
-      };
-    }
+  if (
+    water === null ||
+    water < -500 ||
+    water > 1000
+  ) {
+    throw new Error(
+      "VÍZÜGY: hibás vízállás"
+    );
   }
 
 
-  throw new Error(
-    "VÍZÜGY: aktuális paksi mérési sor nem található"
-  );
+  if (
+    temp === null ||
+    temp < -5 ||
+    temp > 40
+  ) {
+    throw new Error(
+      "VÍZÜGY: hibás vízhő"
+    );
+  }
+
+
+  return {
+    water: Math.round(water),
+
+    temp:
+      Math.round(temp * 10) / 10,
+
+    time:
+      `${row[1]} ${row[2]}`,
+
+    status: "OK"
+  };
 }
 
 
-/* ============================================================
-   FORRÁS LEKÉRÉSE
-============================================================ */
+/* =========================================================
+   FETCH
+========================================================= */
 
-async function fetchSource(url) {
+async function fetchPage(url) {
 
-  /*
-     Fontos:
-     nincs kamu host,
-     nincs alternatív domain,
-     nincs automatikus címváltogatás.
-  */
+  const response =
+    await fetch(
+      url,
+      {
+        method: "GET",
 
-  const response = await fetch(url, {
-    method: "GET",
+        redirect: "follow",
 
-    headers: {
-      "Accept":
-        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        headers: {
+          "Accept":
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 
-      "Accept-Language":
-        "hu-HU,hu;q=0.9,en;q=0.7",
+          "Accept-Language":
+            "hu-HU,hu;q=0.9,en-US;q=0.8,en;q=0.7",
 
-      "User-Agent":
-        "Mozilla/5.0 (compatible; PaksMonitor/1.0)"
-    },
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0 Safari/537.36"
+        },
 
-    cf: {
-      cacheTtl: 0,
-      cacheEverything: false
-    }
-  });
+        cf: {
+          cacheTtl: 0,
+          cacheEverything: false
+        }
+      }
+    );
 
 
   if (!response.ok) {
     throw new Error(
-      `HTTP ${response.status} – ${url}`
+      `HTTP ${response.status}`
     );
   }
 
@@ -366,9 +335,9 @@ async function fetchSource(url) {
     await response.text();
 
 
-  if (!html || html.length < 200) {
+  if (!html || html.length < 300) {
     throw new Error(
-      "Üres vagy hibás válasz"
+      "Üres forrásoldal"
     );
   }
 
@@ -377,9 +346,9 @@ async function fetchSource(url) {
 }
 
 
-/* ============================================================
-   HTML → SZÖVEG
-============================================================ */
+/* =========================================================
+   HTML -> SZÖVEG
+========================================================= */
 
 function htmlToText(html) {
 
@@ -402,16 +371,6 @@ function htmlToText(html) {
       )
 
       .replace(
-        /<\/p>/gi,
-        " "
-      )
-
-      .replace(
-        /<\/div>/gi,
-        " "
-      )
-
-      .replace(
         /<\/td>/gi,
         " "
       )
@@ -423,6 +382,16 @@ function htmlToText(html) {
 
       .replace(
         /<\/tr>/gi,
+        " "
+      )
+
+      .replace(
+        /<\/div>/gi,
+        " "
+      )
+
+      .replace(
+        /<\/p>/gi,
         " "
       )
 
@@ -441,16 +410,15 @@ function htmlToText(html) {
 }
 
 
-/* ============================================================
+/* =========================================================
    HTML ENTITÁSOK
-============================================================ */
+========================================================= */
 
-function decodeEntities(text) {
+function decodeEntities(s) {
 
-  return String(text)
+  return String(s)
 
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&#160;/gi, " ")
+    .replace(/&nbsp;|&#160;/gi, " ")
 
     .replace(/&aacute;/gi, "á")
     .replace(/&Aacute;/gi, "Á")
@@ -481,40 +449,26 @@ function decodeEntities(text) {
 
     .replace(/&deg;/gi, "°")
 
-    .replace(/&minus;/gi, "-")
-    .replace(/&ndash;/gi, "-")
-    .replace(/&mdash;/gi, "-")
+    .replace(/&minus;|&ndash;|&mdash;/gi, "-")
 
     .replace(/&amp;/gi, "&")
 
-    .replace(/&#39;/gi, "'")
-    .replace(/&quot;/gi, '"');
+    .replace(/&quot;/gi, '"')
+
+    .replace(/&#39;/gi, "'");
 }
 
 
-/* ============================================================
-   NORMALIZÁLÁS
-============================================================ */
-
-function normalize(value) {
-
-  return String(value)
-    .toLocaleLowerCase("hu-HU")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-
-/* ============================================================
-   SZÁM KONVERZIÓ
-============================================================ */
+/* =========================================================
+   SZÁM
+========================================================= */
 
 function toNumber(value) {
 
   if (
     value === null ||
     value === undefined ||
-    value === "-"
+    value === ""
   ) {
     return null;
   }
@@ -523,6 +477,7 @@ function toNumber(value) {
   const n =
     Number(
       String(value)
+        .trim()
         .replace(/\s+/g, "")
         .replace(",", ".")
     );
@@ -534,23 +489,15 @@ function toNumber(value) {
 }
 
 
-/* ============================================================
-   OLDAL
-============================================================ */
+/* =========================================================
+   HTML OLDAL
+========================================================= */
 
 function renderPage(data) {
 
   const blocks =
-    Array.isArray(data.blocks)
-      ? data.blocks
-      : [null, null, null, null];
-
-
-  const oahOK =
-    data.oahStatus === "OK";
-
-  const vizOK =
-    data.waterStatus === "OK";
+    data.blocks ||
+    [null, null, null, null];
 
 
   return `<!DOCTYPE html>
@@ -562,8 +509,8 @@ function renderPage(data) {
 <meta charset="UTF-8">
 
 <meta
-  name="viewport"
-  content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"
+ name="viewport"
+ content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"
 >
 
 <meta name="theme-color" content="#06111a">
@@ -573,257 +520,213 @@ function renderPage(data) {
 
 <style>
 
-* {
-  box-sizing: border-box;
+*{
+ box-sizing:border-box;
 }
 
 html,
-body {
-  margin: 0;
-  padding: 0;
-  background: #06111a;
-  color: #fff;
-  font-family:
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    Arial,
-    sans-serif;
+body{
+ margin:0;
+ padding:0;
+ background:#06111a;
+ color:white;
+ font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
 }
 
-body {
-  min-height: 100vh;
+body{
+ min-height:100vh;
 }
 
-.page {
-  width: 100%;
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 22px 16px 30px;
+.page{
+ width:100%;
+ max-width:720px;
+ margin:auto;
+ padding:20px 14px 28px;
 }
 
 
 /* HEADER */
 
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 20px;
+.header{
+ display:flex;
+ align-items:center;
+ justify-content:space-between;
+ margin-bottom:18px;
 }
 
-.logo {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 25px;
-  font-weight: 950;
-  letter-spacing: -1px;
+.logo{
+ font-size:24px;
+ font-weight:950;
+ letter-spacing:-1px;
 }
 
-.atom {
-  font-size: 27px;
+.live{
+ color:#45e6a1;
+ font-size:14px;
+ font-weight:900;
 }
 
-.live {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: #45e6a1;
-  font-size: 14px;
-  font-weight: 900;
-}
-
-.liveDot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: #45e6a1;
-  box-shadow: 0 0 15px #45e6a1;
+.live::before{
+ content:"";
+ display:inline-block;
+ width:9px;
+ height:9px;
+ border-radius:50%;
+ background:#45e6a1;
+ margin-right:7px;
+ box-shadow:0 0 15px #45e6a1;
 }
 
 
-/* KÁRTYA */
+/* CARD */
 
-.card {
-  background: #0c1a25;
-  border: 1px solid #203544;
-  border-radius: 20px;
+.card{
+ background:#0c1a25;
+ border:1px solid #203544;
+ border-radius:19px;
 }
 
 
-/* ÖSSZTELJESÍTMÉNY */
+/* TOTAL */
 
-.total {
-  margin-bottom: 13px;
-  padding: 20px 10px 22px;
-  text-align: center;
+.total{
+ padding:20px 10px;
+ text-align:center;
+ margin-bottom:11px;
 }
 
-.label {
-  color: #8da1b0;
-  font-size: 14px;
-  font-weight: 800;
-  letter-spacing: .4px;
+.label{
+ color:#8da1b0;
+ font-size:13px;
+ font-weight:800;
 }
 
-.totalNumber {
-  margin-top: 7px;
-  color: #48e5a0;
-  font-size: 48px;
-  font-weight: 950;
-  line-height: 1;
+.totalNumber{
+ margin-top:5px;
+ color:#48e5a0;
+ font-size:48px;
+ font-weight:950;
+ line-height:1;
 }
 
-.totalNumber span {
-  margin-left: 4px;
-  color: #94a8b6;
-  font-size: 18px;
+.totalNumber span{
+ font-size:17px;
+ color:#94a8b6;
 }
 
 
-/* BLOKKOK */
+/* BLOCKS */
 
-.blocks {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
+.blocks{
+ display:grid;
+ grid-template-columns:1fr 1fr;
+ gap:9px;
 }
 
-.block {
-  min-height: 102px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
+.block{
+ min-height:100px;
+ display:flex;
+ flex-direction:column;
+ justify-content:center;
+ align-items:center;
 }
 
-.blockName {
-  margin-bottom: 8px;
-  color: #8fa2b0;
-  font-size: 14px;
-  font-weight: 850;
+.blockName{
+ color:#8fa2b0;
+ font-size:13px;
+ font-weight:850;
+ margin-bottom:7px;
 }
 
-.blockMW {
-  font-size: 31px;
-  font-weight: 950;
-  line-height: 1;
+.blockMW{
+ font-size:31px;
+ font-weight:950;
 }
 
-.blockMW span {
-  margin-left: 4px;
-  color: #8498a8;
-  font-size: 15px;
+.blockMW span{
+ color:#8498a8;
+ font-size:14px;
 }
 
 
 /* DUNA */
 
-.dunaTitle {
-  margin: 20px 3px 10px;
-  color: #94a8b6;
-  font-size: 15px;
-  font-weight: 900;
-  letter-spacing: 1.4px;
+.section{
+ margin:18px 3px 9px;
+ font-size:14px;
+ color:#94a8b6;
+ font-weight:900;
+ letter-spacing:1.3px;
 }
 
-.duna {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
+.duna{
+ display:grid;
+ grid-template-columns:1fr 1fr;
+ gap:9px;
 }
 
-.waterCard {
-  min-height: 138px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  text-align: center;
+.water{
+ min-height:132px;
+ display:flex;
+ flex-direction:column;
+ justify-content:center;
+ align-items:center;
+ text-align:center;
 }
 
-.icon {
-  margin-bottom: 5px;
-  font-size: 24px;
+.icon{
+ font-size:23px;
+ margin-bottom:5px;
 }
 
-.waterLabel {
-  color: #8da1b0;
-  font-size: 13px;
-  font-weight: 850;
+.waterLabel{
+ color:#8da1b0;
+ font-size:12px;
+ font-weight:850;
 }
 
-.waterNumber {
-  margin-top: 6px;
-  color: #57c8ff;
-  font-size: 38px;
-  font-weight: 950;
-  line-height: 1;
+.waterValue{
+ margin-top:6px;
+ color:#57c8ff;
+ font-size:37px;
+ font-weight:950;
 }
 
-.waterNumber span {
-  margin-left: 4px;
-  color: #91a5b4;
-  font-size: 15px;
+.waterValue span{
+ color:#91a5b4;
+ font-size:14px;
 }
 
-.tempNumber {
-  color: #ffc857;
-}
-
-
-/* FOOTER */
-
-.footer {
-  margin-top: 16px;
-  padding-top: 13px;
-  border-top: 1px solid #17303e;
-  color: #607786;
-  font-size: 11px;
-  line-height: 1.8;
-  text-align: center;
-}
-
-.ok {
-  color: #45e6a1;
-}
-
-.err {
-  color: #ffbf55;
-}
-
-.brand {
-  margin-top: 8px;
-  color: #415866;
-  font-weight: 900;
-  letter-spacing: 4px;
+.temperature{
+ color:#ffc857;
 }
 
 
-/* MOBIL */
+/* FOOT */
 
-@media (max-width: 390px) {
+.footer{
+ border-top:1px solid #17303e;
+ margin-top:15px;
+ padding-top:12px;
+ text-align:center;
+ color:#607786;
+ font-size:10px;
+ line-height:1.8;
+}
 
-  .page {
-    padding: 18px 12px 25px;
-  }
+.ok{
+ color:#45e6a1;
+}
 
-  .logo {
-    font-size: 22px;
-  }
+.err{
+ color:#ffbd55;
+}
 
-  .totalNumber {
-    font-size: 44px;
-  }
-
-  .blockMW {
-    font-size: 29px;
-  }
-
-  .waterNumber {
-    font-size: 35px;
-  }
+.brand{
+ margin-top:7px;
+ letter-spacing:4px;
+ font-weight:900;
+ color:#415866;
 }
 
 </style>
@@ -836,128 +739,114 @@ body {
 <div class="page">
 
 
-  <div class="header">
+<div class="header">
 
-    <div class="logo">
-      <span class="atom">⚛️</span>
-      PAKS MONITOR
+  <div class="logo">
+    ⚛️ PAKS MONITOR
+  </div>
+
+  <div class="live">
+    LIVE
+  </div>
+
+</div>
+
+
+<div class="card total">
+
+  <div class="label">
+    ERŐMŰ ÖSSZTELJESÍTMÉNY
+  </div>
+
+  <div class="totalNumber">
+    ${show(data.total)}
+    <span>MW</span>
+  </div>
+
+</div>
+
+
+<div class="blocks">
+
+  ${blockCard(1, blocks[0])}
+
+  ${blockCard(2, blocks[1])}
+
+  ${blockCard(3, blocks[2])}
+
+  ${blockCard(4, blocks[3])}
+
+</div>
+
+
+<div class="section">
+  DUNA • PAKS
+</div>
+
+
+<div class="duna">
+
+  <div class="card water">
+
+    <div class="icon">
+      💧
     </div>
 
-    <div class="live">
-      <span class="liveDot"></span>
-      LIVE
+    <div class="waterLabel">
+      VÍZÁLLÁS
+    </div>
+
+    <div class="waterValue">
+      ${show(data.water)}
+      <span>cm</span>
     </div>
 
   </div>
 
 
+  <div class="card water">
 
-  <div class="card total">
-
-    <div class="label">
-      ERŐMŰ ÖSSZTELJESÍTMÉNY
+    <div class="icon">
+      🌡️
     </div>
 
-    <div class="totalNumber">
-      ${show(data.total)}
-      <span>MW</span>
+    <div class="waterLabel">
+      VÍZHŐMÉRSÉKLET
     </div>
 
-  </div>
-
-
-
-  <div class="blocks">
-
-    ${blockHTML(1, blocks[0])}
-
-    ${blockHTML(2, blocks[1])}
-
-    ${blockHTML(3, blocks[2])}
-
-    ${blockHTML(4, blocks[3])}
-
-  </div>
-
-
-
-  <div class="dunaTitle">
-    DUNA • PAKS
-  </div>
-
-
-
-  <div class="duna">
-
-
-    <div class="card waterCard">
-
-      <div class="icon">
-        💧
-      </div>
-
-      <div class="waterLabel">
-        VÍZÁLLÁS
-      </div>
-
-      <div class="waterNumber">
-        ${show(data.water)}
-        <span>cm</span>
-      </div>
-
-    </div>
-
-
-
-    <div class="card waterCard">
-
-      <div class="icon">
-        🌡️
-      </div>
-
-      <div class="waterLabel">
-        VÍZHŐMÉRSÉKLET
-      </div>
-
-      <div class="waterNumber tempNumber">
-        ${showTemp(data.temp)}
-        <span>°C</span>
-      </div>
-
-    </div>
-
-
-  </div>
-
-
-
-  <div class="footer">
-
-    <div>
-      PAKS • OAH:
-      ${escapeHTML(data.oahTime || "–")}
-      •
-      <span class="${oahOK ? "ok" : "err"}">
-        ${escapeHTML(data.oahStatus || "–")}
-      </span>
-    </div>
-
-
-    <div>
-      DUNA • VÍZÜGY:
-      ${escapeHTML(data.waterTime || "–")}
-      •
-      <span class="${vizOK ? "ok" : "err"}">
-        ${escapeHTML(data.waterStatus || "–")}
-      </span>
-    </div>
-
-
-    <div class="brand">
-      IGLÓDI
+    <div class="waterValue temperature">
+      ${showTemp(data.temp)}
+      <span>°C</span>
     </div>
 
   </div>
+
+</div>
+
+
+<div class="footer">
+
+  PAKS • OAH:
+  ${escapeHTML(data.oahTime || "–")}
+  •
+  <span class="${data.oahStatus === "OK" ? "ok" : "err"}">
+    ${escapeHTML(data.oahStatus || "HIBA")}
+  </span>
+
+  <br>
+
+  DUNA • VÍZÜGY:
+  ${escapeHTML(data.waterTime || "–")}
+  •
+  <span class="${data.waterStatus === "OK" ? "ok" : "err"}">
+    ${escapeHTML(data.waterStatus || "HIBA")}
+  </span>
+
+  <div class="brand">
+    IGLÓDI
+  </div>
+
+</div>
 
 
 </div>
@@ -965,44 +854,45 @@ body {
 
 <script>
 
-setTimeout(function () {
-  location.reload();
-}, 60000);
+setTimeout(function(){
+ location.reload();
+},60000);
 
 </script>
 
 
 </body>
+
 </html>`;
 }
 
 
-/* ============================================================
-   BLOKK
-============================================================ */
+/* =========================================================
+   BLOKK KÁRTYA
+========================================================= */
 
-function blockHTML(number, mw) {
+function blockCard(number, value) {
 
   return `
-    <div class="card block">
+  <div class="card block">
 
-      <div class="blockName">
-        ${number}. BLOKK
-      </div>
-
-      <div class="blockMW">
-        ${show(mw)}
-        <span>MW</span>
-      </div>
-
+    <div class="blockName">
+      ${number}. BLOKK
     </div>
+
+    <div class="blockMW">
+      ${show(value)}
+      <span>MW</span>
+    </div>
+
+  </div>
   `;
 }
 
 
-/* ============================================================
-   KIÍRÁS
-============================================================ */
+/* =========================================================
+   MEGJELENÍTÉS
+========================================================= */
 
 function show(value) {
 
@@ -1037,10 +927,6 @@ function showTemp(value) {
   );
 }
 
-
-/* ============================================================
-   HTML ESCAPE
-============================================================ */
 
 function escapeHTML(value) {
 
