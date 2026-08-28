@@ -1582,42 +1582,33 @@ async function drawChart(
 
 
   // ============================================================
-  // FONTOS:
-  // VÍZÁLLÁSNÁL FORDÍTOTT Y-TENGELY
-  // -65 -> magasabban
-  // -88 -> lejjebb
+  // HELYES Y-TENGELY
+  //
+  // FELÜL: nagyobb érték / kisebb mínusz
+  // pl. -55 cm
+  //
+  // ALUL: kisebb érték / nagyobb mínusz
+  // pl. -141 cm
+  //
+  // EZÉRT:
+  // vízszint emelkedése = vonal felfelé
+  // vízszint csökkenése = vonal lefelé
   // ============================================================
 
   const sy =
-    field === "water"
-
-      ? y =>
-          pad.top +
-          (
-            (
-              y -
-              minY
-            ) /
-            (
-              maxY -
-              minY
-            )
-          ) *
-          chartH
-
-      : y =>
-          pad.top +
-          (
-            (
-              maxY -
-              y
-            ) /
-            (
-              maxY -
-              minY
-            )
-          ) *
-          chartH;
+    y =>
+      pad.top +
+      (
+        (
+          maxY -
+          y
+        ) /
+        (
+          maxY -
+          minY
+        )
+      ) *
+      chartH;
 
 
   ctx.fillStyle =
@@ -1630,24 +1621,22 @@ async function drawChart(
     "right";
 
 
+  // ============================================================
+  // Y-TENGELY FELIRATOK
+  //
+  // FELÜL maxY
+  // ALUL minY
+  // ============================================================
+
   for(let i=0;i<=2;i++){
 
     const value =
-      field === "water"
-
-        ? minY +
-          (
-            maxY -
-            minY
-          ) *
-          i / 2
-
-        : maxY -
-          (
-            maxY -
-            minY
-          ) *
-          i / 2;
+      maxY -
+      (
+        maxY -
+        minY
+      ) *
+      i / 2;
 
 
     const y =
