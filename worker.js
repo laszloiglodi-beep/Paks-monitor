@@ -2,6 +2,7 @@ const OAH_URL =
   "https://tranem.haea.gov.hu/web/v3/OAHPortal.nsf/web?OpenAgent=&article=paksnpp";
 
 const VIZ_URLS = [
+  "https://www.vizugy.hu/?AllomasVOA=16496188-97AB-11D4-BB62-00508BA24287&mapData=Idosor&mapModule=OpFeGrafikon",
   "https://www.vizugy.hu/?AllomasVOA=16496188-97AB-11D4-BB62-00508BA24287&mapData=Idosor&mapModule=OpGrafikon",
   "https://www.vizugy.hu/?AllomasVOA=16496188-97AB-11D4-BB62-00508BA24287&mapData=OrasIdosor&mapModule=OpGrafikon"
 ];
@@ -36,10 +37,7 @@ function fmt1(value) {
 
 
 function shortTime(value) {
-  const m =
-    String(value || "")
-      .match(/(\d{2}:\d{2})/);
-
+  const m = String(value || "").match(/(\d{2}:\d{2})/);
   return m ? m[1] : "—";
 }
 
@@ -59,7 +57,6 @@ async function ensureDB(env) {
     throw new Error("DB binding missing");
   }
 
-
   await env.DB
     .prepare(
       "CREATE TABLE IF NOT EXISTS measurements (" +
@@ -72,7 +69,6 @@ async function ensureDB(env) {
     )
     .run();
 
-
   await env.DB
     .prepare(
       "CREATE TABLE IF NOT EXISTS meta (" +
@@ -81,7 +77,6 @@ async function ensureDB(env) {
       ")"
     )
     .run();
-
 
   await seedHistory(env);
 }
@@ -98,43 +93,97 @@ async function seedHistory(env) {
       .prepare(
         "SELECT value FROM meta WHERE key = ?"
       )
-      .bind("seed_v3")
+      .bind("seed_v4")
       .first();
 
-
-  if (already) {
-    return;
-  }
+  if (already) return;
 
 
   const rows = [
 
-    // DUNA – HIVATALOS VÍZÜGY ADATOK
+    // --------------------------------------------------------
+    // KORÁBBI DUNA-PONTOK
+    // --------------------------------------------------------
 
+    ["2026-08-18T00:00:00+02:00", null, -129, 754.1, 25.8],
+
+    ["2026-08-20T00:00:00+02:00", null, -127, null, null],
+
+    ["2026-08-21T00:00:00+02:00", null, -118, null, null],
+
+    ["2026-08-22T00:00:00+02:00", null, -101, null, null],
+
+    ["2026-08-23T00:00:00+02:00", null, -84, null, null],
+
+    ["2026-08-24T00:00:00+02:00", null, -71, null, null],
+
+    ["2026-08-25T00:00:00+02:00", null, -65, null, null],
+
+
+    // --------------------------------------------------------
+    // 2026.08.26.
+    // --------------------------------------------------------
+
+    ["2026-08-26T00:00:00+02:00", null, -65, 1009, 24.3],
+    ["2026-08-26T03:00:00+02:00", null, -65, 1007, 24.1],
+    ["2026-08-26T06:00:00+02:00", null, -66, 1000, 23.9],
+    ["2026-08-26T09:00:00+02:00", null, -67, 993.7, 23.8],
+    ["2026-08-26T12:00:00+02:00", null, -68, null, null],
+    ["2026-08-26T18:00:00+02:00", null, -70, null, null],
     ["2026-08-26T23:30:00+02:00", null, -74, 962, 24.3],
-    ["2026-08-27T00:00:00+02:00", null, -74, 962, 24.2],
-    ["2026-08-27T00:30:00+02:00", null, -75, 958, 24.2],
-    ["2026-08-27T01:00:00+02:00", null, -75, 958, 24.1],
-    ["2026-08-27T01:30:00+02:00", null, -75, 958, 24.1],
-    ["2026-08-27T02:00:00+02:00", null, -75, 958, 24.1],
-    ["2026-08-27T02:30:00+02:00", null, -76, 953, 24.0],
-    ["2026-08-27T03:00:00+02:00", null, -76, 953, 24.1],
-    ["2026-08-27T03:30:00+02:00", null, -77, 950, 24.0],
-    ["2026-08-27T04:00:00+02:00", null, -77, 950, 24.0],
-    ["2026-08-27T04:30:00+02:00", null, -77, 948, 24.0],
-    ["2026-08-27T05:00:00+02:00", null, -77, 948, 24.0],
-    ["2026-08-27T05:30:00+02:00", null, -78, 946, 23.9],
-    ["2026-08-27T06:00:00+02:00", null, -78, 946, 23.9],
-    ["2026-08-27T06:30:00+02:00", null, -79, 941, 23.9],
-    ["2026-08-27T07:00:00+02:00", null, -79, 941, 23.8],
-    ["2026-08-27T07:30:00+02:00", null, -79, 941, 23.8],
-    ["2026-08-27T08:00:00+02:00", null, -79, 941, 23.8],
-    ["2026-08-27T08:30:00+02:00", null, -80, 937, 23.8],
-    ["2026-08-27T09:00:00+02:00", null, -81, 934, 23.8],
-    ["2026-08-27T09:30:00+02:00", null, -81, 934, 23.9],
 
-    // SAJÁT KORÁBBI KÉP – 2026.08.28. 06:31
+
+    // --------------------------------------------------------
+    // 2026.08.27.
+    // --------------------------------------------------------
+
+    ["2026-08-27T00:00:00+02:00", null, -74, 962, 24.2],
+    ["2026-08-27T01:00:00+02:00", null, -75, 958, 24.1],
+    ["2026-08-27T02:00:00+02:00", null, -75, 958, 24.1],
+    ["2026-08-27T03:00:00+02:00", null, -76, 953, 24.1],
+    ["2026-08-27T04:00:00+02:00", null, -77, 950, 24.0],
+    ["2026-08-27T05:00:00+02:00", null, -77, 948, 24.0],
+    ["2026-08-27T06:00:00+02:00", null, -78, 946, 23.9],
+    ["2026-08-27T07:00:00+02:00", null, -79, 941, 23.8],
+    ["2026-08-27T08:00:00+02:00", null, -79, 941, 23.8],
+    ["2026-08-27T09:00:00+02:00", null, -81, 934, 23.8],
+    ["2026-08-27T12:00:00+02:00", null, -82, null, null],
+    ["2026-08-27T15:00:00+02:00", null, -84, null, null],
+    ["2026-08-27T18:00:00+02:00", null, -85, 920, 25.2],
+    ["2026-08-27T21:00:00+02:00", null, -86, 915, 24.7],
+    ["2026-08-27T23:00:00+02:00", null, -87, 911, 24.5],
+
+
+    // --------------------------------------------------------
+    // 2026.08.28.
+    // --------------------------------------------------------
+
+    ["2026-08-28T00:00:00+02:00", null, -87, 911, 24.4],
+    ["2026-08-28T00:30:00+02:00", null, -87, 911, 24.3],
+    ["2026-08-28T01:00:00+02:00", null, -87, 911, 24.3],
+    ["2026-08-28T01:30:00+02:00", null, -88, 908, 24.2],
+
+
+    // --------------------------------------------------------
+    // TELJESÍTMÉNY – BIZTOS PONTOK
+    // --------------------------------------------------------
+
+    ["2026-08-18T00:00:00+02:00", 480, null, null, null],
+
+    ["2026-08-21T00:00:00+02:00", 480, null, null, null],
+
+    ["2026-08-23T00:00:00+02:00", 960, null, null, null],
+
+    ["2026-08-23T12:00:00+02:00", 1440, null, null, null],
+
+    ["2026-08-24T07:00:00+02:00", 1460, null, null, null],
+
+    ["2026-08-24T18:00:00+02:00", 1900, null, null, null],
+
+    ["2026-08-26T16:35:00+02:00", 1950, null, null, null],
+
     ["2026-08-28T06:31:00+02:00", 1952, null, null, null]
+
   ];
 
 
@@ -163,7 +212,7 @@ async function seedHistory(env) {
         "(key,value) VALUES (?,?)"
       )
       .bind(
-        "seed_v3",
+        "seed_v4",
         new Date().toISOString()
       )
   );
@@ -182,22 +231,21 @@ async function fetchOah() {
   let blocks =
     ["—", "—", "—", "—"];
 
-  let time =
-    "—";
-
-  let status =
-    "OK";
+  let time = "—";
+  let status = "OK";
 
 
   try {
 
     const response =
       await fetch(
-        OAH_URL,
+        OAH_URL + "&_=" + Date.now(),
         {
           headers: {
             "User-Agent":
-              "Mozilla/5.0 (compatible; PaksMonitor/1.0)"
+              "Mozilla/5.0 (compatible; PaksMonitor/1.0)",
+            "Cache-Control":
+              "no-cache"
           }
         }
       );
@@ -296,8 +344,7 @@ function parseViz(text) {
   ];
 
 
-  let row =
-    null;
+  let row = null;
 
 
   for (const pattern of patterns) {
@@ -305,9 +352,7 @@ function parseViz(text) {
     row =
       text.match(pattern);
 
-    if (row) {
-      break;
-    }
+    if (row) break;
   }
 
 
@@ -327,11 +372,29 @@ function parseViz(text) {
       }
 
 
+      let s =
+        String(value)
+          .trim();
+
+
+      // 1009,000 a Vízügy oldalán = 1009 m3/s
+      if (
+        /^\d+,\d{3}$/.test(s) &&
+        Number(s.split(",")[0]) > 100
+      ) {
+
+        s =
+          s.split(",")[0];
+
+      } else {
+
+        s =
+          s.replace(",", ".");
+      }
+
+
       const n =
-        Number(
-          String(value)
-            .replace(",", ".")
-        );
+        Number(s);
 
 
       return Number.isFinite(n)
@@ -360,7 +423,7 @@ function parseViz(text) {
 
 
 // ============================================================
-// VÍZÜGY – KÉT HIVATALOS URL
+// VÍZÜGY
 // ============================================================
 
 async function fetchViz() {
@@ -369,9 +432,22 @@ async function fetchViz() {
     "";
 
 
-  for (const url of VIZ_URLS) {
+  for (const baseUrl of VIZ_URLS) {
 
     try {
+
+      const separator =
+        baseUrl.includes("?")
+          ? "&"
+          : "?";
+
+
+      const url =
+        baseUrl +
+        separator +
+        "_=" +
+        Date.now();
+
 
       const response =
         await fetch(
@@ -380,10 +456,19 @@ async function fetchViz() {
             headers: {
 
               "User-Agent":
-                "Mozilla/5.0 (compatible; PaksMonitor/1.0)",
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1",
+
+              "Accept":
+                "text/html,application/xhtml+xml",
 
               "Accept-Language":
-                "hu-HU,hu;q=0.9"
+                "hu-HU,hu;q=0.9",
+
+              "Cache-Control":
+                "no-cache",
+
+              "Pragma":
+                "no-cache"
             }
           }
         );
@@ -399,10 +484,12 @@ async function fetchViz() {
       }
 
 
+      const html =
+        await response.text();
+
+
       const text =
-        clean(
-          await response.text()
-        );
+        clean(html);
 
 
       const parsed =
@@ -455,8 +542,40 @@ async function fetchViz() {
       lastError === "ADATHIBA"
         ? "ADATHIBA"
         : "KAPCSOLATI HIBA"
-
   };
+}
+
+
+// ============================================================
+// UTOLSÓ MENTETT DUNA-ADAT
+// ============================================================
+
+async function lastStoredRiver(env) {
+
+  try {
+
+    await ensureDB(env);
+
+
+    const row =
+      await env.DB
+        .prepare(
+          "SELECT ts,water,flow,temp " +
+          "FROM measurements " +
+          "WHERE water IS NOT NULL " +
+          "ORDER BY ts DESC " +
+          "LIMIT 1"
+        )
+        .first();
+
+
+    return row || null;
+
+
+  } catch (error) {
+
+    return null;
+  }
 }
 
 
@@ -464,7 +583,7 @@ async function fetchViz() {
 // AKTUÁLIS ADATOK
 // ============================================================
 
-async function getCurrentData() {
+async function getCurrentData(env) {
 
   const [
     oah,
@@ -474,6 +593,71 @@ async function getCurrentData() {
       fetchOah(),
       fetchViz()
     ]);
+
+
+  let finalViz =
+    viz;
+
+
+  // Ha a Vízügy pillanatnyilag nem válaszol,
+  // legalább az UTOLSÓ VALÓS mentett értéket mutatjuk.
+  // Nem nevezzük élő adatnak.
+
+  if (
+    !Number.isFinite(
+      finalViz.water
+    ) &&
+    env?.DB
+  ) {
+
+    const stored =
+      await lastStoredRiver(env);
+
+
+    if (
+      stored &&
+      Number.isFinite(
+        Number(stored.water)
+      )
+    ) {
+
+      const d =
+        new Date(
+          Number(stored.ts)
+        );
+
+
+      finalViz = {
+
+        water:
+          Number(stored.water),
+
+        flow:
+          stored.flow === null
+            ? null
+            : Number(stored.flow),
+
+        temp:
+          stored.temp === null
+            ? null
+            : Number(stored.temp),
+
+        time:
+          d.toLocaleTimeString(
+            "hu-HU",
+            {
+              hour:"2-digit",
+              minute:"2-digit",
+              timeZone:
+                "Europe/Budapest"
+            }
+          ),
+
+        status:
+          "UTOLSÓ MENTETT ADAT"
+      };
+    }
+  }
 
 
   return {
@@ -491,19 +675,19 @@ async function getCurrentData() {
       oah.status,
 
     water:
-      viz.water,
+      finalViz.water,
 
     flow:
-      viz.flow,
+      finalViz.flow,
 
     temp:
-      viz.temp,
+      finalViz.temp,
 
     riverTime:
-      viz.time,
+      finalViz.time,
 
     riverStatus:
-      viz.status
+      finalViz.status
   };
 }
 
@@ -675,7 +859,7 @@ function render(data) {
   }
 
 
-  let markerPct =
+  const markerPct =
     Number.isFinite(water)
       ? Math.max(
           0,
@@ -717,10 +901,7 @@ function render(data) {
 <title>⚛️ PAKS AKTUÁLIS ADATOK</title>
 
 
-<meta
-  property="og:type"
-  content="website"
->
+<meta property="og:type" content="website">
 
 <meta
   property="og:title"
@@ -837,8 +1018,7 @@ body{
   height:7px;
   border-radius:50%;
   background:#73e66a;
-  box-shadow:
-    0 0 8px #73e66a;
+  box-shadow:0 0 8px #73e66a;
 }
 
 .card{
@@ -848,8 +1028,7 @@ body{
       #09131f,
       #06101a
     );
-  border:
-    1px solid var(--border);
+  border:1px solid var(--border);
   border-radius:17px;
   overflow:hidden;
   margin-bottom:7px;
@@ -1029,16 +1208,13 @@ canvas{
   width:3px;
   height:19px;
   background:#fff;
-  transform:
-    translateX(-50%);
-  box-shadow:
-    0 0 6px #fff;
+  transform:translateX(-50%);
+  box-shadow:0 0 6px #fff;
 }
 
 .scale{
   display:grid;
-  grid-template-columns:
-    1fr 1fr 1fr;
+  grid-template-columns:1fr 1fr 1fr;
   margin-top:3px;
   font-size:7px;
 }
@@ -1082,8 +1258,7 @@ canvas{
 
 .bottom{
   display:grid;
-  grid-template-columns:
-    .55fr 1.55fr;
+  grid-template-columns:.55fr 1.55fr;
   gap:5px;
 }
 
@@ -1116,8 +1291,7 @@ canvas{
 
 .shareRow{
   display:grid;
-  grid-template-columns:
-    1fr 57px;
+  grid-template-columns:1fr 57px;
   gap:4px;
 }
 
@@ -1153,10 +1327,15 @@ canvas{
 
 <script>
 
+// ============================================================
+// FONTOS: ALAPBÓL 10 NAP
+// ============================================================
+
 let selectedRange = {
-  power:6,
-  water:6
+  power:240,
+  water:240
 };
+
 
 let cache = {};
 
@@ -1795,7 +1974,7 @@ TELJESÍTMÉNY VÁLTOZÁSA • MW
 <div class="periods">
 
 <button
-class="periodButton active"
+class="periodButton"
 data-chart="power"
 onclick="setRange('power',6,this)"
 >
@@ -1811,7 +1990,7 @@ onclick="setRange('power',24,this)"
 </button>
 
 <button
-class="periodButton"
+class="periodButton active"
 data-chart="power"
 onclick="setRange('power',240,this)"
 >
@@ -1900,7 +2079,7 @@ VÍZÁLLÁS VÁLTOZÁSA • CM
 <div class="periods">
 
 <button
-class="periodButton active"
+class="periodButton"
 data-chart="water"
 onclick="setRange('water',6,this)"
 >
@@ -1916,7 +2095,7 @@ onclick="setRange('water',24,this)"
 </button>
 
 <button
-class="periodButton"
+class="periodButton active"
 data-chart="water"
 onclick="setRange('water',240,this)"
 >
@@ -2192,7 +2371,7 @@ export default {
             url
               .searchParams
               .get("hours") ||
-            6
+            240
           );
 
 
@@ -2205,7 +2384,7 @@ export default {
         ) {
 
           hours =
-            6;
+            240;
         }
 
 
@@ -2273,7 +2452,9 @@ export default {
 
 
     const data =
-      await getCurrentData();
+      await getCurrentData(
+        env
+      );
 
 
     ctx
@@ -2312,7 +2493,9 @@ export default {
         async () => {
 
           const data =
-            await getCurrentData();
+            await getCurrentData(
+              env
+            );
 
 
           await saveMeasurement(
