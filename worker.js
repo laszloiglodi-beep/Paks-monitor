@@ -1,50 +1,29 @@
 /* ============================================================
    PAKS MONITOR
    2026-09-11
-
-   JAVÍTÁS:
-   - OAH rész változatlan logikával
-   - VÍZÜGY pontos paksi vízmérce
-   - közvetlen táblázatsor parser
-   - legfrissebb hivatalos adat
-   - korábbi VÍZÜGY sorok visszatöltése D1-be
+   - OAH teljesítmény
+   - VÍZÜGY elsődleges
+   - HYDROINFO hivatalos tartalék forrás
+   - D1 történeti mentés
    - 6 óra / 24 óra / 10 nap grafikon
-   - fallback csak akkor, ha VÍZÜGY tényleg nem elérhető
-============================================================ */
-
-
-/* ============================================================
-   FORRÁSOK
 ============================================================ */
 
 const OAH_URL =
   "https://tranem.haea.gov.hu/web/v3/OAHPortal.nsf/web?OpenAgent=&article=paksnpp";
 
-
-/*
-   PAKS VÍZMÉRCE
-   Törzsszám: 549
-   AllomasVOA: 16496188-97AB-11D4-BB62-00508BA24287
-
-   Több URL-t próbálunk, de ugyanazt a PAKS vízmércét.
-*/
-
 const VIZ_URLS = [
-
   "https://www.vizugy.hu/index.php?AllomasVOA=16496188-97AB-11D4-BB62-00508BA24287&mapData=OrasIdosor&mapModule=OpGrafikon",
-
   "https://www.vizugy.hu/?AllomasVOA=16496188-97AB-11D4-BB62-00508BA24287&mapData=OrasIdosor&mapModule=OpGrafikon",
-
   "https://www.vizugy.hu/index.php?AllomasVOA=16496188-97AB-11D4-BB62-00508BA24287&Vizf=Duna&hozam=0&mapData=Hossz_szelv&mapModule=Ophossz_szelv&width="
 ];
 
+const HYDROINFO_URL =
+  "https://www.hydroinfo.hu/tables/dunhif_a.html";
 
 const PUBLIC_URL =
   "https://paks-monitor.laszlo-iglodi.workers.dev";
 
-
-const ALERT_WATER_LEVEL =
-  -129;
+const ALERT_WATER_LEVEL = -129;
 
 
 /* ============================================================
@@ -52,401 +31,151 @@ const ALERT_WATER_LEVEL =
 ============================================================ */
 
 function cleanHTML(html) {
-
   return String(html || "")
-
-    .replace(
-      /<script[\s\S]*?<\/script>/gi,
-      " "
-    )
-
-    .replace(
-      /<style[\s\S]*?<\/style>/gi,
-      " "
-    )
-
-    .replace(
-      /<br\s*\/?>/gi,
-      "\n"
-    )
-
-    .replace(
-      /<\/tr>/gi,
-      "\n"
-    )
-
-    .replace(
-      /<\/td>/gi,
-      " "
-    )
-
-    .replace(
-      /<\/th>/gi,
-      " "
-    )
-
-    .replace(
-      /<\/p>/gi,
-      "\n"
-    )
-
-    .replace(
-      /<\/div>/gi,
-      "\n"
-    )
-
-    .replace(
-      /&nbsp;/gi,
-      " "
-    )
-
-    .replace(
-      /&#160;/gi,
-      " "
-    )
-
-    .replace(
-      /&deg;/gi,
-      "°"
-    )
-
-    .replace(
-      /&#176;/gi,
-      "°"
-    )
-
-    .replace(
-      /&sup3;/gi,
-      "³"
-    )
-
-    .replace(
-      /&#179;/gi,
-      "³"
-    )
-
-    .replace(
-      /&#8722;/gi,
-      "-"
-    )
-
-    .replace(
-      /&minus;/gi,
-      "-"
-    )
-
-    .replace(
-      /&amp;/gi,
-      "&"
-    )
-
-    .replace(
-      /<[^>]+>/g,
-      " "
-    )
-
-    .replace(
-      /−/g,
-      "-"
-    )
-
-    .replace(
-      /\r/g,
-      "\n"
-    )
-
-    .replace(
-      /[ \t]+/g,
-      " "
-    )
-
-    .replace(
-      /\n\s+/g,
-      "\n"
-    )
-
-    .replace(
-      /\n{2,}/g,
-      "\n"
-    )
-
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/tr>/gi, "\n")
+    .replace(/<\/td>/gi, " ")
+    .replace(/<\/th>/gi, " ")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<\/div>/gi, "\n")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&#160;/gi, " ")
+    .replace(/&deg;/gi, "°")
+    .replace(/&#176;/gi, "°")
+    .replace(/&sup3;/gi, "³")
+    .replace(/&#179;/gi, "³")
+    .replace(/&#8722;/gi, "-")
+    .replace(/&minus;/gi, "-")
+    .replace(/&amp;/gi, "&")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/−/g, "-")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s+/g, "\n")
+    .replace(/\n{2,}/g, "\n")
     .trim();
 }
 
-
 function numberValue(value) {
-
   if (
     value === null ||
     value === undefined ||
-    value === "-"
+    value === "-" ||
+    value === "//"
   ) {
     return null;
   }
 
-
-  const text =
+  const n = Number(
     String(value)
       .trim()
       .replace(/−/g, "-")
-      .replace(/\s/g, "");
+      .replace(/\s/g, "")
+      .replace(",", ".")
+  );
 
-
-  /*
-     VÍZÜGY:
-     629.500 jelenthet 629,500 jellegű kijelzést.
-     Vízhozamnál a pont után 3 számjegy esetén
-     ez lehet tizedespont is. JS Number megfelelő.
-  */
-
-  const normalized =
-    text.replace(",", ".");
-
-
-  const n =
-    Number(normalized);
-
-
-  return Number.isFinite(n)
-    ? n
-    : null;
+  return Number.isFinite(n) ? n : null;
 }
 
-
-/* ============================================================
-   BUDAPEST IDŐ
-============================================================ */
-
 function budapestParts(ts) {
+  const parts = new Intl.DateTimeFormat("hu-HU", {
+    timeZone: "Europe/Budapest",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(new Date(ts));
 
-  const parts =
-    new Intl.DateTimeFormat(
-      "hu-HU",
-      {
-        timeZone:
-          "Europe/Budapest",
-
-        year:
-          "numeric",
-
-        month:
-          "2-digit",
-
-        day:
-          "2-digit",
-
-        hour:
-          "2-digit",
-
-        minute:
-          "2-digit",
-
-        hour12:
-          false
-      }
-    )
-    .formatToParts(
-      new Date(ts)
-    );
-
-
-  function get(type) {
-
-    return (
-      parts.find(
-        p => p.type === type
-      )?.value || ""
-    );
-  }
-
+  const get = type =>
+    parts.find(p => p.type === type)?.value || "";
 
   return {
-
-    year:
-      get("year"),
-
-    month:
-      get("month"),
-
-    day:
-      get("day"),
-
-    hour:
-      get("hour"),
-
-    minute:
-      get("minute")
+    year: get("year"),
+    month: get("month"),
+    day: get("day"),
+    hour: get("hour"),
+    minute: get("minute")
   };
 }
 
-
-function localBudapestTimestamp(
-  year,
-  month,
-  day,
-  hour,
-  minute
-) {
-
+function localBudapestTimestamp(year, month, day, hour, minute) {
   let guess =
-    Date.UTC(
+    Date.UTC(year, month - 1, day, hour - 1, minute);
+
+  for (let i = 0; i < 4; i++) {
+    const p = budapestParts(guess);
+
+    const represented = Date.UTC(
+      Number(p.year),
+      Number(p.month) - 1,
+      Number(p.day),
+      Number(p.hour),
+      Number(p.minute)
+    );
+
+    const wanted = Date.UTC(
       year,
       month - 1,
       day,
-      hour - 1,
+      hour,
       minute
     );
 
-
-  for (
-    let i = 0;
-    i < 4;
-    i++
-  ) {
-
-    const p =
-      budapestParts(
-        guess
-      );
-
-
-    const represented =
-      Date.UTC(
-        Number(p.year),
-        Number(p.month) - 1,
-        Number(p.day),
-        Number(p.hour),
-        Number(p.minute)
-      );
-
-
-    const wanted =
-      Date.UTC(
-        year,
-        month - 1,
-        day,
-        hour,
-        minute
-      );
-
-
-    guess +=
-      wanted -
-      represented;
+    guess += wanted - represented;
   }
-
 
   return guess;
 }
 
-
 function parseHuDateTime(value) {
+  if (!value) return null;
 
-  if (!value) {
-    return null;
-  }
+  const s = String(value)
+    .replace(/\s+/g, " ")
+    .trim();
 
+  const m = s.match(
+    /(\d{4})\.(\d{1,2})\.(\d{1,2})\.?\s+(\d{1,2}):(\d{2})/
+  );
 
-  const s =
-    String(value)
-      .replace(/\s+/g, " ")
-      .trim();
-
-
-  /*
-     2026.09.11. 05:30
-  */
-
-  const m =
-    s.match(
-      /(\d{4})\.(\d{1,2})\.(\d{1,2})\.?\s+(\d{1,2}):(\d{2})/
-    );
-
-
-  if (!m) {
-    return null;
-  }
-
+  if (!m) return null;
 
   return localBudapestTimestamp(
-
     Number(m[1]),
-
     Number(m[2]),
-
     Number(m[3]),
-
     Number(m[4]),
-
     Number(m[5])
   );
 }
 
-
 function formatTime(ts) {
+  if (!ts) return "—";
 
-  if (!ts) {
-    return "—";
-  }
-
-
-  return new Intl.DateTimeFormat(
-    "hu-HU",
-    {
-      timeZone:
-        "Europe/Budapest",
-
-      hour:
-        "2-digit",
-
-      minute:
-        "2-digit",
-
-      hour12:
-        false
-    }
-  )
-  .format(
-    new Date(ts)
-  );
+  return new Intl.DateTimeFormat("hu-HU", {
+    timeZone: "Europe/Budapest",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(new Date(ts));
 }
 
-
 function formatDateTime(ts) {
+  if (!ts) return "—";
 
-  if (!ts) {
-    return "—";
-  }
-
-
-  return new Intl.DateTimeFormat(
-    "hu-HU",
-    {
-      timeZone:
-        "Europe/Budapest",
-
-      year:
-        "numeric",
-
-      month:
-        "2-digit",
-
-      day:
-        "2-digit",
-
-      hour:
-        "2-digit",
-
-      minute:
-        "2-digit",
-
-      hour12:
-        false
-    }
-  )
-  .format(
-    new Date(ts)
-  );
+  return new Intl.DateTimeFormat("hu-HU", {
+    timeZone: "Europe/Budapest",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(new Date(ts));
 }
 
 
@@ -455,170 +184,76 @@ function formatDateTime(ts) {
 ============================================================ */
 
 async function fetchOah() {
-
   try {
-
-    const response =
-      await fetch(
-
-        OAH_URL +
-        "&_=" +
-        Date.now(),
-
-        {
-
-          headers: {
-
-            "user-agent":
-              "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1",
-
-            "cache-control":
-              "no-cache",
-
-            "pragma":
-              "no-cache"
-          },
-
-
-          cf: {
-
-            cacheTtl:
-              0,
-
-            cacheEverything:
-              false
-          }
+    const response = await fetch(
+      OAH_URL + "&_=" + Date.now(),
+      {
+        headers: {
+          "user-agent":
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1",
+          "cache-control": "no-cache",
+          "pragma": "no-cache"
+        },
+        cf: {
+          cacheTtl: 0,
+          cacheEverything: false
         }
-      );
-
+      }
+    );
 
     if (!response.ok) {
-
-      throw new Error(
-        "OAH HTTP " +
-        response.status
-      );
+      throw new Error("OAH HTTP " + response.status);
     }
 
+    const html = await response.text();
+    const text = cleanHTML(html);
 
-    const html =
-      await response.text();
-
-
-    const text =
-      cleanHTML(
-        html
-      );
-
-
-    const blockMatch =
-      text.match(
-
-        /1\.\s*blokk\s*2\.\s*blokk\s*3\.\s*blokk\s*4\.\s*blokk\s*(\d+)\s*MW\s*(\d+)\s*MW\s*(\d+)\s*MW\s*(\d+)\s*MW/i
-
-      );
-
+    const blockMatch = text.match(
+      /1\.\s*blokk\s*2\.\s*blokk\s*3\.\s*blokk\s*4\.\s*blokk\s*(\d+)\s*MW\s*(\d+)\s*MW\s*(\d+)\s*MW\s*(\d+)\s*MW/i
+    );
 
     if (!blockMatch) {
-
-      throw new Error(
-        "OAH blokkadat nem található"
-      );
+      throw new Error("OAH blokkadat nem található");
     }
-
 
     const blocks = [
-
-      Number(
-        blockMatch[1]
-      ),
-
-      Number(
-        blockMatch[2]
-      ),
-
-      Number(
-        blockMatch[3]
-      ),
-
-      Number(
-        blockMatch[4]
-      )
+      Number(blockMatch[1]),
+      Number(blockMatch[2]),
+      Number(blockMatch[3]),
+      Number(blockMatch[4])
     ];
 
-
     const total =
-      blocks.reduce(
-        (sum, value) =>
-          sum + value,
-        0
-      );
+      blocks.reduce((sum, value) => sum + value, 0);
 
+    let measurementTs = Date.now();
 
-    let measurementTs =
-      Date.now();
-
-
-    const dateMatch =
-
-      text.match(
-        /Mérés\s*dátuma[:\s]*([0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}\.?\s+[0-9]{1,2}:[0-9]{2})/i
-      );
-
+    const dateMatch = text.match(
+      /Mérés\s*dátuma[:\s]*([0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}\.?\s+[0-9]{1,2}:[0-9]{2})/i
+    );
 
     if (dateMatch) {
-
       measurementTs =
-        parseHuDateTime(
-          dateMatch[1]
-        )
-        ||
-        Date.now();
+        parseHuDateTime(dateMatch[1]) || Date.now();
     }
 
-
     return {
-
-      ok:
-        true,
-
+      ok: true,
       blocks,
-
       total,
-
-      ts:
-        measurementTs,
-
-      status:
-        "OK"
+      ts: measurementTs,
+      status: "OK"
     };
-
 
   } catch (error) {
 
     return {
-
-      ok:
-        false,
-
-      blocks: [
-        null,
-        null,
-        null,
-        null
-      ],
-
-      total:
-        null,
-
-      ts:
-        null,
-
-      status:
-        "KAPCSOLATI HIBA",
-
-      error:
-        String(error)
+      ok: false,
+      blocks: [null, null, null, null],
+      total: null,
+      ts: null,
+      status: "KAPCSOLATI HIBA",
+      error: String(error)
     };
   }
 }
@@ -628,99 +263,31 @@ async function fetchOah() {
    VÍZÜGY PARSER
 ============================================================ */
 
-/*
-   Hivatalos táblázat tényleges formája:
-
-   2026.09.11. 05:30 -111 629.500 22.0
-
-   vagy:
-
-   2026.09.10. 23:00 -110 634 22,6
-
-   Első:
-   dátum/idő
-
-   Második:
-   vízállás cm
-
-   Harmadik:
-   vízhozam m3/s
-
-   Negyedik:
-   felszíni vízhő °C
-*/
-
-
 function parseVizRows(html) {
-
-  const text =
-    cleanHTML(
-      html
-    );
-
-
+  const text = cleanHTML(html);
   const rows = [];
-
-
-  /*
-     Direkt a hivatalos táblázat számsorát keressük.
-  */
 
   const regex =
     /(\d{4}\.\d{1,2}\.\d{1,2}\.?\s+\d{1,2}:\d{2})\s+(-?\d{1,4})\s+(-|[0-9]+(?:[.,][0-9]+)?)\s+(-|[0-9]+(?:[.,][0-9]+)?)/g;
 
-
   let match;
 
-
-  while (
-    (
-      match =
-        regex.exec(text)
-    ) !== null
-  ) {
+  while ((match = regex.exec(text)) !== null) {
 
     const ts =
-      parseHuDateTime(
-        match[1]
-      );
-
+      parseHuDateTime(match[1]);
 
     const water =
-      numberValue(
-        match[2]
-      );
-
+      numberValue(match[2]);
 
     const flow =
-      numberValue(
-        match[3]
-      );
-
+      numberValue(match[3]);
 
     const temp =
-      numberValue(
-        match[4]
-      );
+      numberValue(match[4]);
 
-
-    if (
-      !Number.isFinite(ts)
-    ) {
-      continue;
-    }
-
-
-    if (
-      !Number.isFinite(water)
-    ) {
-      continue;
-    }
-
-
-    /*
-       Biztonsági életszerűség.
-    */
+    if (!Number.isFinite(ts)) continue;
+    if (!Number.isFinite(water)) continue;
 
     if (
       water < -500 ||
@@ -728,7 +295,6 @@ function parseVizRows(html) {
     ) {
       continue;
     }
-
 
     if (
       Number.isFinite(flow) &&
@@ -740,7 +306,6 @@ function parseVizRows(html) {
       continue;
     }
 
-
     if (
       Number.isFinite(temp) &&
       (
@@ -751,103 +316,61 @@ function parseVizRows(html) {
       continue;
     }
 
-
-    /*
-       Jövőbeni hibás időpont kizárása.
-    */
-
     if (
       ts >
       Date.now() +
-      2 *
-      60 *
-      60 *
-      1000
+      2 * 60 * 60 * 1000
     ) {
       continue;
     }
 
-
     rows.push({
-
       ts,
-
       water:
-        Math.round(
-          water
-        ),
-
+        Math.round(water),
       flow,
-
       temp
     });
   }
 
-
-  /*
-     Duplikációk eltávolítása.
-  */
-
   const unique =
     new Map();
 
-
-  for (
-    const row
-    of rows
-  ) {
+  for (const row of rows) {
 
     const previous =
-      unique.get(
-        row.ts
-      );
-
+      unique.get(row.ts);
 
     if (!previous) {
-
       unique.set(
         row.ts,
         row
       );
-
       continue;
     }
 
-
     unique.set(
-
       row.ts,
-
       {
-
-        ts:
-          row.ts,
-
-        water:
-          row.water,
+        ts: row.ts,
+        water: row.water,
 
         flow:
-          Number.isFinite(
-            row.flow
-          )
+          Number.isFinite(row.flow)
             ? row.flow
             : previous.flow,
 
         temp:
-          Number.isFinite(
-            row.temp
-          )
+          Number.isFinite(row.temp)
             ? row.temp
             : previous.temp
       }
     );
   }
 
-
   return [
     ...unique.values()
-  ]
-  .sort(
+  ].sort(
     (a, b) =>
       a.ts - b.ts
   );
@@ -855,14 +378,252 @@ function parseVizRows(html) {
 
 
 /* ============================================================
-   VÍZÜGY LETÖLTÉS
+   HYDROINFO PARSER
+   PAKS ÁLLOMÁSKÓD: 442030
+============================================================ */
+
+function parseHydroinfoPaks(html) {
+
+  const trRegex =
+    /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
+
+  let tr;
+
+  while (
+    (tr = trRegex.exec(html)) !== null
+  ) {
+
+    const rowHtml =
+      tr[1];
+
+    if (
+      !/442030/.test(rowHtml) ||
+      !/Paks/i.test(rowHtml)
+    ) {
+      continue;
+    }
+
+    const cells = [];
+
+    const tdRegex =
+      /<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi;
+
+    let td;
+
+    while (
+      (td = tdRegex.exec(rowHtml)) !== null
+    ) {
+
+      cells.push(
+        cleanHTML(td[1])
+          .replace(/\s+/g, " ")
+          .trim()
+      );
+    }
+
+    if (
+      cells.length >= 9 &&
+      /442030/.test(cells[0]) &&
+      /Paks/i.test(cells[1])
+    ) {
+
+      const water =
+        numberValue(cells[5]);
+
+      const flow =
+        numberValue(cells[7]);
+
+      const temp =
+        numberValue(cells[8]);
+
+      if (
+        Number.isFinite(water) &&
+        water >= -500 &&
+        water <= 1500
+      ) {
+
+        return {
+          water:
+            Math.round(water),
+
+          flow:
+            Number.isFinite(flow)
+              ? flow
+              : null,
+
+          temp:
+            Number.isFinite(temp)
+              ? temp
+              : null
+        };
+      }
+    }
+  }
+
+  const text =
+    cleanHTML(html)
+      .replace(/−/g, "-")
+      .replace(/\s+/g, " ");
+
+  const m = text.match(
+    /442030\s+Paks\s+Duna\s+(-?\d+|\/\/)\s+(-?\d+|\/\/)\s+(-?\d+|\/\/)\s+(-?\d+|\/\/)\s+([0-9]+(?:[.,][0-9]+)?|\/\/)\s+([0-9]+(?:[.,][0-9]+)?|\/\/)/i
+  );
+
+  if (!m) return null;
+
+  const water =
+    numberValue(m[3]);
+
+  const flow =
+    numberValue(m[5]);
+
+  const temp =
+    numberValue(m[6]);
+
+  if (
+    !Number.isFinite(water) ||
+    water < -500 ||
+    water > 1500
+  ) {
+    return null;
+  }
+
+  return {
+    water:
+      Math.round(water),
+
+    flow:
+      Number.isFinite(flow)
+        ? flow
+        : null,
+
+    temp:
+      Number.isFinite(temp)
+        ? temp
+        : null
+  };
+}
+
+
+/* ============================================================
+   HYDROINFO LETÖLTÉS
+============================================================ */
+
+async function fetchHydroinfo() {
+
+  try {
+
+    const response =
+      await fetch(
+        HYDROINFO_URL +
+        "?_=" +
+        Date.now(),
+        {
+          headers: {
+            "user-agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36",
+
+            "accept":
+              "text/html,application/xhtml+xml,*/*",
+
+            "cache-control":
+              "no-cache",
+
+            "pragma":
+              "no-cache"
+          },
+
+          cf: {
+            cacheTtl: 0,
+            cacheEverything: false
+          },
+
+          redirect:
+            "follow"
+        }
+      );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const html =
+      await response.text();
+
+    const parsed =
+      parseHydroinfoPaks(html);
+
+    if (!parsed) {
+      return null;
+    }
+
+    const ts =
+      Math.floor(
+        Date.now() /
+        (
+          30 *
+          60 *
+          1000
+        )
+      ) *
+      (
+        30 *
+        60 *
+        1000
+      );
+
+    return {
+      ok: true,
+      official: true,
+
+      source:
+        "HYDROINFO",
+
+      sourceUrl:
+        HYDROINFO_URL,
+
+      water:
+        parsed.water,
+
+      flow:
+        parsed.flow,
+
+      temp:
+        parsed.temp,
+
+      ts,
+
+      rows: [
+        {
+          ts,
+          water:
+            parsed.water,
+          flow:
+            parsed.flow,
+          temp:
+            parsed.temp
+        }
+      ],
+
+      status:
+        "OK"
+    };
+
+  } catch (_) {
+
+    return null;
+  }
+}
+
+
+/* ============================================================
+   VÍZÜGY + HYDROINFO
 ============================================================ */
 
 async function fetchViz() {
 
   const successfulSources =
     [];
-
 
   await Promise.all(
 
@@ -880,7 +641,6 @@ async function fetchViz() {
               ? "&"
               : "?";
 
-
           const fetchUrl =
             baseUrl +
             separator +
@@ -889,16 +649,11 @@ async function fetchViz() {
             "_" +
             Math.random();
 
-
           const response =
             await fetch(
-
               fetchUrl,
-
               {
-
                 headers: {
-
                   "user-agent":
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36",
 
@@ -915,85 +670,35 @@ async function fetchViz() {
                     "no-cache"
                 },
 
-
                 cf: {
-
-                  cacheTtl:
-                    0,
-
-                  cacheEverything:
-                    false
+                  cacheTtl: 0,
+                  cacheEverything: false
                 },
-
 
                 redirect:
                   "follow"
               }
             );
 
-
-          if (
-            !response.ok
-          ) {
+          if (!response.ok) {
             return;
           }
-
 
           const html =
             await response.text();
 
-
-          /*
-             PLUSZ védelem:
-             biztosan Paks vízmérce legyen,
-             ne a küszöb alvíz vagy hűtővíz.
-          */
-
-          const cleaned =
-            cleanHTML(html);
-
-
-          if (
-            !/Paks\s+vízmérce/i.test(
-              cleaned
-            )
-            &&
-            !/Vízmérce\s+név:\s*Paks/i.test(
-              cleaned
-            )
-          ) {
-
-            /*
-               A Hossz_szelv oldal címe másképp is jöhet,
-               ezért az állomás UUID-t elfogadjuk.
-            */
-
-            if (
-              !html.includes(
-                "16496188-97AB-11D4-BB62-00508BA24287"
-              )
-            ) {
-              return;
-            }
-          }
-
-
           const rows =
-            parseVizRows(
-              html
-            );
+            parseVizRows(html);
 
-
-          if (
-            !rows.length
-          ) {
+          if (!rows.length) {
             return;
           }
 
-
           successfulSources.push({
-
             sourceIndex,
+
+            source:
+              "VÍZÜGY",
 
             sourceUrl:
               baseUrl,
@@ -1006,105 +711,91 @@ async function fetchViz() {
               ]
           });
 
-
-        } catch (error) {
-
-          /*
-             Egy forrás hibája
-             nem állítja meg a másik kettőt.
-          */
-
-        }
+        } catch (_) {}
       }
     )
   );
 
-
   if (
-    !successfulSources.length
+    successfulSources.length
   ) {
 
+    successfulSources.sort(
+      (a, b) =>
+        b.latest.ts -
+        a.latest.ts
+    );
+
+    const winner =
+      successfulSources[0];
+
+    const latest =
+      winner.latest;
+
     return {
+      ok: true,
+      official: true,
 
-      ok:
-        false,
+      source:
+        "VÍZÜGY",
 
-      official:
-        false,
+      sourceUrl:
+        winner.sourceUrl,
 
       water:
-        null,
+        latest.water,
 
       flow:
-        null,
+        latest.flow,
 
       temp:
-        null,
+        latest.temp,
 
       ts:
-        null,
+        latest.ts,
 
       rows:
-        [],
+        winner.rows,
 
       status:
-        "KAPCSOLATI HIBA"
+        "OK"
     };
   }
 
+  const hydro =
+    await fetchHydroinfo();
 
-  /*
-     Az a forrás nyer,
-     amelyiknek a LEGFRISSEBB mérési ideje van.
-  */
-
-  successfulSources.sort(
-
-    (a, b) =>
-      b.latest.ts -
-      a.latest.ts
-  );
-
-
-  const winner =
-    successfulSources[0];
-
-
-  const latest =
-    winner.latest;
-
+  if (hydro) {
+    return hydro;
+  }
 
   return {
+    ok: false,
+    official: false,
 
-    ok:
-      true,
-
-    official:
-      true,
-
-    water:
-      latest.water,
-
-    flow:
-      latest.flow,
-
-    temp:
-      latest.temp,
-
-    ts:
-      latest.ts,
-
-    rows:
-      winner.rows,
+    source:
+      null,
 
     sourceUrl:
-      winner.sourceUrl,
+      null,
 
-    sourceIndex:
-      winner.sourceIndex,
+    water:
+      null,
+
+    flow:
+      null,
+
+    temp:
+      null,
+
+    ts:
+      null,
+
+    rows:
+      [],
 
     status:
-      "OK"
+      "KAPCSOLATI HIBA"
   };
 }
 
@@ -1119,32 +810,22 @@ async function ensureDB(env) {
     return;
   }
 
-
   await env.DB.prepare(`
     CREATE TABLE IF NOT EXISTS measurements (
-
       ts INTEGER PRIMARY KEY,
-
       power INTEGER,
-
       water INTEGER,
-
       flow REAL,
-
       temp REAL
     )
   `).run();
 
-
   await env.DB.prepare(`
     CREATE TABLE IF NOT EXISTS meta (
-
       key TEXT PRIMARY KEY,
-
       value TEXT
     )
   `).run();
-
 
   await cleanupOldBadData(
     env
@@ -1153,7 +834,7 @@ async function ensureDB(env) {
 
 
 /* ============================================================
-   RÉGI HIBÁS SEED ADATOK EGYSZERI TAKARÍTÁSA
+   RÉGI HIBÁS ADATOK TAKARÍTÁSA
 ============================================================ */
 
 async function cleanupOldBadData(
@@ -1171,39 +852,22 @@ async function cleanupOldBadData(
     )
     .first();
 
-
   if (done) {
     return;
   }
 
-
-  /*
-     Régi mesterséges seed időpontok.
-  */
-
   const oldSeedTimes = [
-
     "2026-08-18T00:00:00+02:00",
-
     "2026-08-18T12:00:00+02:00",
-
     "2026-08-21T00:00:00+02:00",
-
     "2026-08-23T00:00:00+02:00",
-
     "2026-08-23T12:00:00+02:00",
-
     "2026-08-24T07:00:00+02:00",
-
     "2026-08-24T18:00:00+02:00",
-
     "2026-08-26T16:35:00+02:00",
-
     "2026-08-27T09:00:00+02:00",
-
     "2026-08-28T01:30:00+02:00"
   ];
-
 
   for (
     const iso
@@ -1222,7 +886,6 @@ async function cleanupOldBadData(
     .run();
   }
 
-
   await env.DB.prepare(`
     INSERT OR REPLACE INTO meta
     (key,value)
@@ -1237,7 +900,7 @@ async function cleanupOldBadData(
 
 
 /* ============================================================
-   UTOLSÓ MENTETT VÍZÜGY ADAT
+   UTOLSÓ MENTETT VÍZADAT
 ============================================================ */
 
 async function getLastRiver(
@@ -1248,24 +911,15 @@ async function getLastRiver(
     return null;
   }
 
-
   return await env.DB.prepare(`
     SELECT
-
       ts,
-
       water,
-
       flow,
-
       temp
-
     FROM measurements
-
     WHERE water IS NOT NULL
-
     ORDER BY ts DESC
-
     LIMIT 1
   `)
   .first();
@@ -1273,7 +927,7 @@ async function getLastRiver(
 
 
 /* ============================================================
-   VÍZÜGY TÖRTÉNETI SOROK BEÍRÁSA
+   VÍZÜGY TÖRTÉNETI MENTÉS
 ============================================================ */
 
 async function saveRiverRows(
@@ -1289,16 +943,10 @@ async function saveRiverRows(
     return;
   }
 
-
-  /*
-     Legfeljebb az utolsó 500 hivatalos sor.
-  */
-
   const selected =
     rows.slice(
       -500
     );
-
 
   for (
     const row
@@ -1308,15 +956,13 @@ async function saveRiverRows(
     if (
       !Number.isFinite(
         row.ts
-      )
-      ||
+      ) ||
       !Number.isFinite(
         row.water
       )
     ) {
       continue;
     }
-
 
     const existing =
       await env.DB.prepare(`
@@ -1329,10 +975,8 @@ async function saveRiverRows(
       )
       .first();
 
-
     await env.DB.prepare(`
       INSERT OR REPLACE INTO measurements
-
       (
         ts,
         power,
@@ -1340,12 +984,10 @@ async function saveRiverRows(
         flow,
         temp
       )
-
       VALUES
       (?,?,?,?,?)
     `)
     .bind(
-
       row.ts,
 
       existing?.power ??
@@ -1371,7 +1013,7 @@ async function saveRiverRows(
 
 
 /* ============================================================
-   AKTUÁLIS OAH ADAT MENTÉSE
+   OAH MENTÉS
 ============================================================ */
 
 async function savePower(
@@ -1389,7 +1031,6 @@ async function savePower(
     return;
   }
 
-
   const bucket =
     Math.floor(
       Date.now() /
@@ -1397,19 +1038,13 @@ async function savePower(
     ) *
     300000;
 
-
   const existing =
     await env.DB.prepare(`
       SELECT
-
         water,
-
         flow,
-
         temp
-
       FROM measurements
-
       WHERE ts = ?
     `)
     .bind(
@@ -1417,10 +1052,8 @@ async function savePower(
     )
     .first();
 
-
   await env.DB.prepare(`
     INSERT OR REPLACE INTO measurements
-
     (
       ts,
       power,
@@ -1428,12 +1061,10 @@ async function savePower(
       flow,
       temp
     )
-
     VALUES
     (?,?,?,?,?)
   `)
   .bind(
-
     bucket,
 
     oah.total,
@@ -1463,23 +1094,14 @@ async function loadAllData(
     env
   );
 
-
   const [
     oah,
     freshRiver
   ] =
     await Promise.all([
-
       fetchOah(),
-
       fetchViz()
     ]);
-
-
-  /*
-     VÍZÜGY TÖRTÉNETI SOROK
-     azonnal bekerülnek D1-be.
-  */
 
   if (
     freshRiver.ok &&
@@ -1488,29 +1110,18 @@ async function loadAllData(
   ) {
 
     await saveRiverRows(
-
       env,
-
       freshRiver.rows
     );
   }
-
 
   await savePower(
     env,
     oah
   );
 
-
   let river =
     freshRiver;
-
-
-  /*
-     Ha most nem elérhető a VÍZÜGY,
-     CSAK akkor használjuk
-     az utolsó mentett adatot.
-  */
 
   if (
     !freshRiver.ok
@@ -1521,16 +1132,17 @@ async function loadAllData(
         env
       );
 
-
     if (stored) {
 
       river = {
+        ok: false,
+        official: false,
 
-        ok:
-          false,
+        source:
+          "MENTETT ADAT",
 
-        official:
-          false,
+        sourceUrl:
+          null,
 
         water:
           numberValue(
@@ -1559,16 +1171,17 @@ async function loadAllData(
           "UTOLSÓ MENTETT ADAT"
       };
 
-
     } else {
 
       river = {
+        ok: false,
+        official: false,
 
-        ok:
-          false,
+        source:
+          null,
 
-        official:
-          false,
+        sourceUrl:
+          null,
 
         water:
           null,
@@ -1591,11 +1204,6 @@ async function loadAllData(
     }
   }
 
-
-  /*
-     11 napos tárolás.
-  */
-
   if (env.DB) {
 
     await env.DB.prepare(`
@@ -1603,7 +1211,6 @@ async function loadAllData(
       WHERE ts < ?
     `)
     .bind(
-
       Date.now() -
       11 *
       24 *
@@ -1614,11 +1221,8 @@ async function loadAllData(
     .run();
   }
 
-
   return {
-
     oah,
-
     river
   };
 }
@@ -1637,9 +1241,7 @@ function waterStatus(
       water
     )
   ) {
-
     return {
-
       text:
         "NINCS ADAT",
 
@@ -1648,13 +1250,10 @@ function waterStatus(
     };
   }
 
-
   if (
     water <= -144
   ) {
-
     return {
-
       text:
         "KRITIKUS TARTOMÁNY",
 
@@ -1663,13 +1262,10 @@ function waterStatus(
     };
   }
 
-
   if (
     water <= -134
   ) {
-
     return {
-
       text:
         "LEÁLLÁSI TARTOMÁNY",
 
@@ -1678,13 +1274,10 @@ function waterStatus(
     };
   }
 
-
   if (
     water <= -129
   ) {
-
     return {
-
       text:
         "FIGYELMEZTETÉS",
 
@@ -1693,9 +1286,7 @@ function waterStatus(
     };
   }
 
-
   return {
-
     text:
       "NORMÁL TARTOMÁNY",
 
@@ -1725,14 +1316,12 @@ function renderPage(
           null
         ];
 
-
   const total =
     Number.isFinite(
       data.oah.total
     )
       ? data.oah.total
       : "—";
-
 
   const water =
     Number.isFinite(
@@ -1741,14 +1330,12 @@ function renderPage(
       ? data.river.water
       : null;
 
-
   const flow =
     Number.isFinite(
       data.river?.flow
     )
       ? data.river.flow
       : null;
-
 
   const temp =
     Number.isFinite(
@@ -1757,17 +1344,13 @@ function renderPage(
       ? data.river.temp
       : null;
 
-
   const official =
-    data.river?.official ===
-    true;
-
+    data.river?.official === true;
 
   const ws =
     waterStatus(
       water
     );
-
 
   const shutdownReserve =
     Number.isFinite(
@@ -1776,7 +1359,6 @@ function renderPage(
       ? water + 134
       : null;
 
-
   const safetyReserve =
     Number.isFinite(
       water
@@ -1784,6 +1366,9 @@ function renderPage(
       ? water + 144
       : null;
 
+  const sourceName =
+    data.river?.source ||
+    "VÍZÜGY";
 
   return `
 <!doctype html>
@@ -1807,7 +1392,6 @@ function renderPage(
 <title>
 PAKS AKTUÁLIS ADATOK
 </title>
-
 
 <style>
 
@@ -2109,11 +1693,9 @@ canvas{
 
 </head>
 
-
 <body>
 
 <div class="wrap">
-
 
 <div class="header">
 
@@ -2128,31 +1710,23 @@ canvas{
 </div>
 
 
-<!-- ========================================================
-     TELJESÍTMÉNY
-======================================================== -->
-
 <div class="card">
 
   <div class="section-title">
     PAKSI ATOMERŐMŰ TELJESÍTMÉNYE
   </div>
 
-
   <div class="big green">
     ${total} MW
   </div>
-
 
   <div class="subtitle">
     ÖSSZTELJESÍTMÉNY
   </div>
 
-
   <div class="chart-title">
     TELJESÍTMÉNY VÁLTOZÁSA • MW
   </div>
-
 
   <div class="range">
 
@@ -2180,15 +1754,9 @@ canvas{
 
   </div>
 
-
   <div class="chart-wrap">
-
-    <canvas
-      id="powerChart"
-    ></canvas>
-
+    <canvas id="powerChart"></canvas>
   </div>
-
 
   <div class="blocks">
 
@@ -2216,7 +1784,6 @@ canvas{
 
   </div>
 
-
   <div class="source">
 
     OAH •
@@ -2242,16 +1809,11 @@ canvas{
 </div>
 
 
-<!-- ========================================================
-     DUNA
-======================================================== -->
-
 <div class="card">
 
   <div class="section-title">
     🌊 DUNA VÍZÁLLÁSA PAKSNÁL
   </div>
-
 
   <div class="big blue">
 
@@ -2263,16 +1825,13 @@ canvas{
 
   </div>
 
-
   <div class="status ${ws.cls}">
     ${ws.text}
   </div>
 
-
   <div class="chart-title">
     VÍZÁLLÁS VÁLTOZÁSA • CM
   </div>
-
 
   <div class="range">
 
@@ -2300,15 +1859,9 @@ canvas{
 
   </div>
 
-
   <div class="chart-wrap">
-
-    <canvas
-      id="waterChart"
-    ></canvas>
-
+    <canvas id="waterChart"></canvas>
   </div>
-
 
   <div class="metrics">
 
@@ -2332,7 +1885,6 @@ canvas{
 
     </div>
 
-
     <div class="metric">
 
       <div class="metric-label">
@@ -2354,7 +1906,6 @@ canvas{
     </div>
 
   </div>
-
 
   <div class="gauge">
 
@@ -2392,33 +1943,17 @@ canvas{
 
     </div>
 
-
     <div class="gauge-labels">
 
-      <span>
-        −150
-      </span>
-
-      <span>
-        −144
-      </span>
-
-      <span>
-        −134
-      </span>
-
-      <span>
-        −129
-      </span>
-
-      <span>
-        −110 cm
-      </span>
+      <span>−150</span>
+      <span>−144</span>
+      <span>−134</span>
+      <span>−129</span>
+      <span>−110 cm</span>
 
     </div>
 
   </div>
-
 
   <div class="reserves">
 
@@ -2441,7 +1976,6 @@ canvas{
 
     </div>
 
-
     <div class="reserve">
 
       <div class="reserve-value">
@@ -2463,10 +1997,9 @@ canvas{
 
   </div>
 
-
   <div class="source">
 
-    VÍZÜGY •
+    ${sourceName} •
 
     ${formatTime(
       data.river?.ts
@@ -2491,14 +2024,13 @@ canvas{
 
   </div>
 
-
   ${
     !official
       ? `
 
     <div class="warning-box">
 
-      ⚠️ A VÍZÜGY ÉLŐ LEKÉRÉSE NEM ELÉRHETŐ.
+      ⚠️ AZ ÉLŐ HIVATALOS VÍZÜGYI LEKÉRÉS NEM ELÉRHETŐ.
       AZ OLDAL UTOLSÓ MENTETT ADATOT MUTAT.
 
     </div>
@@ -2521,17 +2053,9 @@ canvas{
 
 <script>
 
-/* ============================================================
-   GRAFIKON
-============================================================ */
-
 let selectedRange = {
-
-  power:
-    240,
-
-  water:
-    240
+  power: 240,
+  water: 240
 };
 
 
@@ -2542,33 +2066,25 @@ async function loadHistory(
   try {
 
     const hours =
-      selectedRange[
-        type
-      ];
-
+      selectedRange[type];
 
     const response =
       await fetch(
-
         "/api/history?hours=" +
         hours +
         "&_=" +
         Date.now(),
-
         {
           cache:
             "no-store"
         }
       );
 
-
     const result =
       await response.json();
 
-
     if (
-      type ===
-      "power"
+      type === "power"
     ) {
 
       const points =
@@ -2598,18 +2114,12 @@ async function loadHistory(
             })
           );
 
-
       drawChart(
-
         "powerChart",
-
         points,
-
         "MW",
-
         hours
       );
-
 
     } else {
 
@@ -2640,21 +2150,17 @@ async function loadHistory(
             })
           );
 
-
       drawChart(
-
         "waterChart",
-
         points,
-
         "cm",
-
         hours
       );
     }
 
-
-  } catch (error) {
+  } catch (
+    error
+  ) {
 
     console.error(
       error
@@ -2675,19 +2181,12 @@ function drawChart(
       canvasId
     );
 
-
   if (!canvas) {
     return;
   }
 
-
-  /*
-     Érvényes pontok + időrend.
-  */
-
   const map =
     new Map();
-
 
   for (
     const p
@@ -2697,8 +2196,7 @@ function drawChart(
     if (
       !Number.isFinite(
         p.x
-      )
-      ||
+      ) ||
       !Number.isFinite(
         p.y
       )
@@ -2706,10 +2204,8 @@ function drawChart(
       continue;
     }
 
-
     if (
-      unit === "MW"
-      &&
+      unit === "MW" &&
       (
         p.y < 0 ||
         p.y > 2300
@@ -2718,10 +2214,8 @@ function drawChart(
       continue;
     }
 
-
     if (
-      unit === "cm"
-      &&
+      unit === "cm" &&
       (
         p.y < -500 ||
         p.y > 1500
@@ -2730,13 +2224,11 @@ function drawChart(
       continue;
     }
 
-
     map.set(
       p.x,
       p
     );
   }
-
 
   const points =
     [
@@ -2744,19 +2236,15 @@ function drawChart(
     ]
     .sort(
       (a, b) =>
-        a.x -
-        b.x
+        a.x - b.x
     );
-
 
   const parent =
     canvas.parentElement;
 
-
   const rect =
     parent
       .getBoundingClientRect();
-
 
   const width =
     Math.max(
@@ -2766,7 +2254,6 @@ function drawChart(
       )
     );
 
-
   const height =
     Math.max(
       80,
@@ -2775,7 +2262,6 @@ function drawChart(
       )
     );
 
-
   const dpr =
     Math.min(
       window.devicePixelRatio ||
@@ -2783,13 +2269,11 @@ function drawChart(
       3
     );
 
-
   canvas.width =
     Math.floor(
       width *
       dpr
     );
-
 
   canvas.height =
     Math.floor(
@@ -2797,22 +2281,18 @@ function drawChart(
       dpr
     );
 
-
   canvas.style.width =
     width +
     "px";
-
 
   canvas.style.height =
     height +
     "px";
 
-
   const ctx =
     canvas.getContext(
       "2d"
     );
-
 
   ctx.setTransform(
     dpr,
@@ -2823,14 +2303,12 @@ function drawChart(
     0
   );
 
-
   ctx.clearRect(
     0,
     0,
     width,
     height
   );
-
 
   if (
     !points.length
@@ -2839,53 +2317,39 @@ function drawChart(
     ctx.fillStyle =
       "#8794a7";
 
-
     ctx.font =
       "10px -apple-system";
-
 
     ctx.textAlign =
       "center";
 
-
     ctx.fillText(
-
       "NINCS TÖRTÉNETI ADAT",
-
-      width /
-      2,
-
-      height /
-      2
+      width / 2,
+      height / 2
     );
-
 
     return;
   }
-
 
   const values =
     points.map(
       p => p.y
     );
 
-
   let minY =
     Math.min(
       ...values
     );
-
 
   let maxY =
     Math.max(
       ...values
     );
 
-
   let span =
     maxY -
     minY;
-
 
   if (
     span === 0
@@ -2896,15 +2360,11 @@ function drawChart(
         ? 20
         : 2;
 
-
     minY -=
-      span /
-      2;
-
+      span / 2;
 
     maxY +=
-      span /
-      2;
+      span / 2;
 
   } else {
 
@@ -2912,15 +2372,12 @@ function drawChart(
       span *
       0.15;
 
-
     minY -=
       extra;
-
 
     maxY +=
       extra;
   }
-
 
   if (
     unit === "MW"
@@ -2932,7 +2389,6 @@ function drawChart(
         10
       ) *
       10;
-
 
     maxY =
       Math.ceil(
@@ -2948,25 +2404,20 @@ function drawChart(
         minY
       );
 
-
     maxY =
       Math.ceil(
         maxY
       );
   }
 
-
   if (
     minY === maxY
   ) {
-    maxY +=
-      1;
+    maxY += 1;
   }
-
 
   const yLabels =
     [];
-
 
   for (
     let i = 0;
@@ -2983,9 +2434,7 @@ function drawChart(
       i /
       2;
 
-
     yLabels.push(
-
       Math.round(
         value
       ) +
@@ -2994,14 +2443,11 @@ function drawChart(
     );
   }
 
-
   ctx.font =
     "8px -apple-system";
 
-
   let widest =
     0;
-
 
   for (
     const label
@@ -3010,18 +2456,14 @@ function drawChart(
 
     widest =
       Math.max(
-
         widest,
-
         ctx.measureText(
           label
         ).width
       );
   }
 
-
   const pad = {
-
     left:
       Math.ceil(
         widest
@@ -3038,44 +2480,33 @@ function drawChart(
       20
   };
 
-
   const chartW =
     Math.max(
-
       1,
-
       width -
       pad.left -
       pad.right
     );
 
-
   const chartH =
     Math.max(
-
       1,
-
       height -
       pad.top -
       pad.bottom
     );
 
-
   ctx.strokeStyle =
     "#29364a";
-
 
   ctx.lineWidth =
     1;
 
-
   ctx.fillStyle =
     "#8491a4";
 
-
   ctx.font =
     "8px -apple-system";
-
 
   for (
     let i = 0;
@@ -3089,15 +2520,12 @@ function drawChart(
       i /
       2;
 
-
     ctx.beginPath();
-
 
     ctx.moveTo(
       pad.left,
       y
     );
-
 
     ctx.lineTo(
       width -
@@ -3105,41 +2533,31 @@ function drawChart(
       y
     );
 
-
     ctx.stroke();
-
 
     ctx.textAlign =
       "left";
 
-
     ctx.textBaseline =
       "middle";
 
-
     ctx.fillText(
-
       yLabels[i],
-
       2,
-
       y
     );
   }
-
 
   const minX =
     points[
       0
     ].x;
 
-
   const maxX =
     points[
       points.length -
       1
     ].x;
-
 
   const xRange =
     Math.max(
@@ -3148,15 +2566,12 @@ function drawChart(
       minX
     );
 
-
   function xPos(
     x
   ) {
 
     return (
-
       pad.left +
-
       (
         (
           x -
@@ -3168,15 +2583,12 @@ function drawChart(
     );
   }
 
-
   function yPos(
     y
   ) {
 
     return (
-
       pad.top +
-
       (
         (
           maxY -
@@ -3191,14 +2603,7 @@ function drawChart(
     );
   }
 
-
-  /*
-     Időben nagy adathiánynál
-     ne húzzon átlós vonalat.
-  */
-
   let maxGap;
-
 
   if (
     hours <= 6
@@ -3228,31 +2633,24 @@ function drawChart(
       1000;
   }
 
-
   ctx.strokeStyle =
     unit === "MW"
       ? "#78e793"
       : "#6db8ff";
 
-
   ctx.lineWidth =
     2;
-
 
   ctx.lineJoin =
     "round";
 
-
   ctx.lineCap =
     "round";
 
-
   ctx.beginPath();
-
 
   let previous =
     null;
-
 
   for (
     const p
@@ -3264,16 +2662,13 @@ function drawChart(
         p.x
       );
 
-
     const y =
       yPos(
         p.y
       );
 
-
     if (
-      previous === null
-      ||
+      previous === null ||
       p.x -
       previous.x >
       maxGap
@@ -3292,14 +2687,11 @@ function drawChart(
       );
     }
 
-
     previous =
       p;
   }
 
-
   ctx.stroke();
-
 
   const last =
     points[
@@ -3307,61 +2699,44 @@ function drawChart(
       1
     ];
 
-
   ctx.beginPath();
 
-
   ctx.arc(
-
     xPos(
       last.x
     ),
-
     yPos(
       last.y
     ),
-
     3,
-
     0,
-
     Math.PI *
     2
   );
-
 
   ctx.fillStyle =
     unit === "MW"
       ? "#78e793"
       : "#6db8ff";
 
-
   ctx.fill();
-
 
   ctx.fillStyle =
     "#8390a3";
 
-
   ctx.font =
     "8px -apple-system";
-
 
   ctx.textBaseline =
     "alphabetic";
 
-
   const ticks = [
-
     minX,
-
     minX +
     xRange /
     2,
-
     maxX
   ];
-
 
   ticks.forEach(
     (
@@ -3374,9 +2749,7 @@ function drawChart(
           ts
         );
 
-
       let label;
-
 
       if (
         hours >= 240
@@ -3384,11 +2757,8 @@ function drawChart(
 
         label =
           d.toLocaleString(
-
             "hu-HU",
-
             {
-
               timeZone:
                 "Europe/Budapest",
 
@@ -3413,11 +2783,8 @@ function drawChart(
 
         label =
           d.toLocaleTimeString(
-
             "hu-HU",
-
             {
-
               timeZone:
                 "Europe/Budapest",
 
@@ -3433,9 +2800,7 @@ function drawChart(
           );
       }
 
-
       ctx.textAlign =
-
         index === 0
           ? "left"
           :
@@ -3444,15 +2809,11 @@ function drawChart(
           :
           "right";
 
-
       ctx.fillText(
-
         label,
-
         xPos(
           ts
         ),
-
         height -
         4
       );
@@ -3473,26 +2834,21 @@ document
     button => {
 
       button.addEventListener(
-
         "click",
-
         () => {
 
           const type =
             button.dataset.type;
-
 
           const hours =
             Number(
               button.dataset.hours
             );
 
-
           selectedRange[
             type
           ] =
             hours;
-
 
           document
             .querySelectorAll(
@@ -3507,13 +2863,11 @@ document
                 )
             );
 
-
           button
             .classList
             .add(
               "active"
             );
-
 
           loadHistory(
             type
@@ -3523,48 +2877,38 @@ document
     }
   );
 
-
 loadHistory(
   "power"
 );
-
 
 loadHistory(
   "water"
 );
 
-
 let resizeTimer =
   null;
 
-
 window.addEventListener(
-
   "resize",
-
   () => {
 
     clearTimeout(
       resizeTimer
     );
 
-
     resizeTimer =
       setTimeout(
-
         () => {
 
           loadHistory(
             "power"
           );
 
-
           loadHistory(
             "water"
           );
 
         },
-
         150
       );
   }
@@ -3584,7 +2928,6 @@ window.addEventListener(
 ============================================================ */
 
 export default {
-
 
   async fetch(
     request,
@@ -3612,23 +2955,22 @@ export default {
           env
         );
 
-
       return new Response(
-
         JSON.stringify(
-
           {
-
             oah:
               data.oah,
 
             river: {
-
               ok:
                 data.river.ok,
 
               official:
                 data.river.official,
+
+              source:
+                data.river.source ||
+                null,
 
               water:
                 data.river.water,
@@ -3650,14 +2992,15 @@ export default {
                 null
             },
 
-
             riverInfo: {
-
               station:
                 "Paks",
 
               stationId:
                 "16496188-97AB-11D4-BB62-00508BA24287",
+
+              hydroinfoStation:
+                "442030",
 
               measurementTime:
                 data.river.ts
@@ -3679,27 +3022,19 @@ export default {
 
               alert:
                 data.river.official ===
-                  true
-                &&
+                  true &&
                 Number.isFinite(
                   data.river.water
-                )
-                &&
+                ) &&
                 data.river.water <=
                   ALERT_WATER_LEVEL
             }
-
           },
-
           null,
-
           2
         ),
-
         {
-
           headers: {
-
             "content-type":
               "application/json; charset=UTF-8",
 
@@ -3718,7 +3053,7 @@ export default {
 
 
     /* ========================================================
-       VÍZÜGY DEBUG
+       DEBUG VÍZÜGY
     ======================================================== */
 
     if (
@@ -3729,21 +3064,20 @@ export default {
       const river =
         await fetchViz();
 
-
       return new Response(
-
         JSON.stringify(
-
           {
-
             ok:
               river.ok,
 
             official:
               river.official,
 
-            latest: {
+            source:
+              river.source ||
+              null,
 
+            latest: {
               water:
                 river.water,
 
@@ -3768,7 +3102,7 @@ export default {
               river.rows?.length ||
               0,
 
-            source:
+            sourceUrl:
               river.sourceUrl ||
               null,
 
@@ -3776,22 +3110,15 @@ export default {
               (
                 river.rows ||
                 []
-              )
-              .slice(
+              ).slice(
                 -20
               )
-
           },
-
           null,
-
           2
         ),
-
         {
-
           headers: {
-
             "content-type":
               "application/json; charset=UTF-8",
 
@@ -3816,16 +3143,13 @@ export default {
         env
       );
 
-
       let hours =
         Number(
           url.searchParams.get(
             "hours"
-          )
-          ||
+          ) ||
           240
         );
-
 
       if (
         ![
@@ -3836,11 +3160,9 @@ export default {
           hours
         )
       ) {
-
         hours =
           240;
       }
-
 
       const cutoff =
         Date.now() -
@@ -3849,25 +3171,16 @@ export default {
         60 *
         1000;
 
-
       const result =
         await env.DB.prepare(`
           SELECT
-
             ts,
-
             power,
-
             water,
-
             flow,
-
             temp
-
           FROM measurements
-
           WHERE ts >= ?
-
           ORDER BY ts ASC
         `)
         .bind(
@@ -3875,12 +3188,9 @@ export default {
         )
         .all();
 
-
       return new Response(
-
         JSON.stringify(
           {
-
             hours,
 
             rows:
@@ -3888,11 +3198,8 @@ export default {
               []
           }
         ),
-
         {
-
           headers: {
-
             "content-type":
               "application/json; charset=UTF-8",
 
@@ -3919,17 +3226,12 @@ export default {
         env
       );
 
-
     return new Response(
-
       renderPage(
         data
       ),
-
       {
-
         headers: {
-
           "content-type":
             "text/html; charset=UTF-8",
 
@@ -3958,7 +3260,6 @@ export default {
   ) {
 
     ctx.waitUntil(
-
       loadAllData(
         env
       )
